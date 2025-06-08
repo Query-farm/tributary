@@ -1,6 +1,7 @@
 {
         "dependencies": [
-                "openssl"
+                "openssl",
+                "librdkafka"
         ],
         "vcpkg-configuration": {
                 "overlay-ports": [

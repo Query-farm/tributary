@@ -2,7 +2,7 @@
 This repository contains a template for creating a DuckDB extension. The main goal of this template is to allow users to easily develop, test and distribute their own DuckDB extension. The main branch of the template is always based on the latest stable DuckDB allowing you to try out your extension right away.
 
 ## Getting started
-First step to getting started is to create your own repo from this template by clicking `Use this template`. Then clone your new repository using 
+First step to getting started is to create your own repo from this template by clicking `Use this template`. Then clone your new repository using
 ```sh
 git clone --recurse-submodules https://github.com/<you>/<your-new-extension-repo>.git
 ```
@@ -30,7 +30,7 @@ The main binaries that will be built are:
 ./build/release/test/unittest
 ./build/release/extension/<extension_name>/<extension_name>.duckdb_extension
 ```
-- `duckdb` is the binary for the duckdb shell with the extension code automatically loaded. 
+- `duckdb` is the binary for the duckdb shell with the extension code automatically loaded.
 - `unittest` is the test runner of duckdb. Again, the extension is already linked into the binary.
 - `<extension_name>.duckdb_extension` is the loadable binary as it would be distributed.
 
@@ -44,16 +44,16 @@ GEN=ninja make
 ```
 
 ## Running the extension
-To run the extension code, simply start the shell with `./build/release/duckdb`. This shell will have the extension pre-loaded.  
+To run the extension code, simply start the shell with `./build/release/duckdb`. This shell will have the extension pre-loaded.
 
-Now we can use the features from the extension directly in DuckDB. The template contains a single scalar function `quack()` that takes a string arguments and returns a string:
+Now we can use the features from the extension directly in DuckDB. The template contains a single scalar function `tributary()` that takes a string arguments and returns a string:
 ```
-D select quack('Jane') as result;
+D select tributary('Jane') as result;
 ┌───────────────┐
 │    result     │
 │    varchar    │
 ├───────────────┤
-│ Quack Jane 🐥 │
+│ Tributary Jane 🐥 │
 └───────────────┘
 ```
 
@@ -92,7 +92,7 @@ To distribute your extension binaries, there are a few options.
 The recommended way of distributing extensions is through the [community extensions repository](https://github.com/duckdb/community-extensions).
 This repository is designed specifically for extensions that are built using this extension template, meaning that as long as your extension can be
 built using the default CI in this template, submitting it to the community extensions is a very simple process. The process works similarly to popular
-package managers like homebrew and vcpkg, where a PR containing a descriptor file is submitted to the package manager repository. After the CI in the 
+package managers like homebrew and vcpkg, where a PR containing a descriptor file is submitted to the package manager repository. After the CI in the
 community extensions repository completes, the extension can be installed and loaded in DuckDB with:
 ```SQL
 INSTALL <my_extension> FROM community;
@@ -125,18 +125,18 @@ LOAD <my_extension>
 ```
 
 ### Versioning of your extension
-Extension binaries will only work for the specific DuckDB version they were built for. The version of DuckDB that is targeted 
-is set to the latest stable release for the main branch of the template so initially that is all you need. As new releases 
+Extension binaries will only work for the specific DuckDB version they were built for. The version of DuckDB that is targeted
+is set to the latest stable release for the main branch of the template so initially that is all you need. As new releases
 of DuckDB are published however, the extension repository will need to be updated. The template comes with a workflow set-up
 that will automatically build the binaries for all DuckDB target architectures that are available in the corresponding DuckDB
 version. This workflow is found in `.github/workflows/MainDistributionPipeline.yml`. It is up to the extension developer to keep
-this up to date with DuckDB. Note also that its possible to distribute binaries for multiple DuckDB versions in this workflow 
+this up to date with DuckDB. Note also that its possible to distribute binaries for multiple DuckDB versions in this workflow
 by simply duplicating the jobs.
 
-## Setting up CLion 
+## Setting up CLion
 
 ### Opening project
-Configuring CLion with the extension template requires a little work. Firstly, make sure that the DuckDB submodule is available. 
+Configuring CLion with the extension template requires a little work. Firstly, make sure that the DuckDB submodule is available.
 Then make sure to open `./duckdb/CMakeLists.txt` (so not the top level `CMakeLists.txt` file from this repo) as a project in CLion.
 Now to fix your project path go to `tools->CMake->Change Project Root`([docs](https://www.jetbrains.com/help/clion/change-project-root-directory.html)) to set the project root to the root dir of this repo.
 

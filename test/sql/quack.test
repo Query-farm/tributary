@@ -1,23 +1,23 @@
-# name: test/sql/quack.test
-# description: test quack extension
-# group: [quack]
+# name: test/sql/tributary.test
+# description: test tributary extension
+# group: [tributary]
 
 # Before we load the extension, this will fail
 statement error
-SELECT quack('Sam');
+SELECT tributary('Sam');
 ----
-Catalog Error: Scalar Function with name quack does not exist!
+Catalog Error: Scalar Function with name tributary does not exist!
 
 # Require statement will ensure this test is run with this extension loaded
-require quack
+require tributary
 
 # Confirm the extension works
 query I
-SELECT quack('Sam');
+SELECT tributary('Sam');
 ----
-Quack Sam 🐥
+Tributary Sam 🐥
 
 query I
-SELECT quack_openssl_version('Michael') ILIKE 'Quack Michael, my linked OpenSSL version is OpenSSL%';
+SELECT tributary_openssl_version('Michael') ILIKE 'Tributary Michael, my linked OpenSSL version is OpenSSL%';
 ----
 true
