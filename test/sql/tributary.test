@@ -17,7 +17,3 @@ SELECT tributary('Sam');
 ----
 Tributary Sam 🐥
 
-query I
-SELECT tributary_openssl_version('Michael') ILIKE 'Tributary Michael, my linked OpenSSL version is OpenSSL%';
-----
-true

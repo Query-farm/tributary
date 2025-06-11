@@ -1,6 +1,14 @@
 {
         "dependencies": [
-                "librdkafka"
+                {
+                        "name": "librdkafka",
+                        "features": [
+                                "curl",
+                                "ssl",
+                                "zlib",
+                                "zstd"
+                        ]
+                }
         ],
         "vcpkg-configuration": {
                 "overlay-ports": [

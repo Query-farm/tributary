@@ -1,13 +1,11 @@
 {
   "files.exclude": {
     "vcpkg/downloads": true,
-    "vcpkg/packages": true,
     "vcpkg/ports": true,
     "vcpkg/scripts": true,
     "vcpkg/toolsrc": true,
     "vcpkg/versions": true,
     "vcpkg/triplets": true,
-    "vcpkg_installed/**": true,
     "duckdb_unittest_tempdir": true,
     "build/**": true,
     ".tmp/**": true,
