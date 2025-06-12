@@ -4,6 +4,6 @@
 
 namespace duckdb {
 
-void TributaryScanTopicAddFunction(DatabaseInstance &instance);
+void TributaryScanTopicAddFunction(ExtensionLoader &loader);
 
 }; // namespace duckdb

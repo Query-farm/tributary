@@ -3,7 +3,6 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/function/scalar_function.hpp"
-#include "duckdb/main/extension_util.hpp"
 #include <duckdb/parser/parsed_data/create_scalar_function_info.hpp>
 #include <librdkafka/rdkafkacpp.h>
 #include "tributary_config.hpp"
@@ -310,7 +309,7 @@ static unique_ptr<LocalTableFunctionState> TributaryScanTopicLocalInit(Execution
 	return make_uniq<TributaryScanTopicLocalState>();
 }
 
-void TributaryScanTopicAddFunction(DatabaseInstance &instance) {
+void TributaryScanTopicAddFunction(ExtensionLoader &loader) {
 	auto scan_topic_function =
 	    TableFunction("tributary_scan_topic", {LogicalType::VARCHAR}, TributaryScanTopic, TributaryScanTopicBind,
 	                  TributaryScanTopicGlobalInit, TributaryScanTopicLocalInit);
@@ -319,7 +318,7 @@ void TributaryScanTopicAddFunction(DatabaseInstance &instance) {
 		scan_topic_function.named_parameters[key] = LogicalType(LogicalTypeId::VARCHAR);
 	}
 
-	ExtensionUtil::RegisterFunction(instance, scan_topic_function);
+	loader.RegisterFunction(scan_topic_function);
 }
 
 } // namespace duckdb

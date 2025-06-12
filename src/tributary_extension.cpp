@@ -3,7 +3,6 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/function/scalar_function.hpp"
-#include "duckdb/main/extension_util.hpp"
 #include <duckdb/parser/parsed_data/create_scalar_function_info.hpp>
 #include <librdkafka/rdkafkacpp.h>
 
@@ -219,24 +218,32 @@ static void TributaryMetadata(ClientContext &context, TableFunctionInput &data, 
 	}
 }
 
-static void LoadInternal(DatabaseInstance &instance) {
+static inline void TributaryVersionFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	result.SetValue(0, Value("20250612.01"));
+}
+
+static void LoadInternal(ExtensionLoader &loader) {
 	// Register a scalar function
 	auto tributary_scalar_function =
 	    ScalarFunction("tributary", {LogicalType::VARCHAR}, LogicalType::VARCHAR, TributaryScalarFun);
-	ExtensionUtil::RegisterFunction(instance, tributary_scalar_function);
+	loader.RegisterFunction(tributary_scalar_function);
 
 	auto metadata_function = TableFunction("tributary_metadata", {}, TributaryMetadata, TributaryMetadataBind);
 	for (auto &key : TributaryConfigKeys()) {
 		metadata_function.named_parameters[key] = LogicalType(LogicalTypeId::VARCHAR);
 	}
 
-	ExtensionUtil::RegisterFunction(instance, metadata_function);
+	loader.RegisterFunction(metadata_function);
 
-	TributaryScanTopicAddFunction(instance);
+	auto version_function = ScalarFunction("tributary_version", {}, LogicalType::VARCHAR, TributaryVersionFunction);
+	loader.RegisterFunction(version_function);
+
+	TributaryScanTopicAddFunction(loader);
 }
 
-void TributaryExtension::Load(DuckDB &db) {
-	LoadInternal(*db.instance);
+void TributaryExtension::Load(ExtensionLoader &loader) {
+	LoadInternal(loader);
 }
 std::string TributaryExtension::Name() {
 	return "tributary";
@@ -250,12 +257,7 @@ std::string TributaryExtension::Version() const {
 
 extern "C" {
 
-DUCKDB_EXTENSION_API void tributary_init(duckdb::DatabaseInstance &db) {
-	duckdb::DuckDB db_wrapper(db);
-	db_wrapper.LoadExtension<duckdb::TributaryExtension>();
-}
-
-DUCKDB_EXTENSION_API const char *tributary_version() {
-	return duckdb::DuckDB::LibraryVersion();
+DUCKDB_CPP_EXTENSION_ENTRY(tributary, loader) {
+	duckdb::LoadInternal(loader);
 }
 }
