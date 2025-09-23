@@ -8,6 +8,7 @@
 
 #include "tributary_scan_topic.hpp"
 #include "tributary_config.hpp"
+#include "query_farm_telemetry.hpp"
 
 namespace duckdb {
 
@@ -240,6 +241,8 @@ static void LoadInternal(ExtensionLoader &loader) {
 	loader.RegisterFunction(version_function);
 
 	TributaryScanTopicAddFunction(loader);
+
+	QueryFarmSendTelemetry(loader, instance.shared_from_this(), "tributary", "2025092301");
 }
 
 void TributaryExtension::Load(ExtensionLoader &loader) {
@@ -250,7 +253,7 @@ std::string TributaryExtension::Name() {
 }
 
 std::string TributaryExtension::Version() const {
-	return "";
+	return "2025092301";
 }
 
 } // namespace duckdb
