@@ -18,7 +18,7 @@ jobs:
     name: Build extension binaries
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
     with:
-      duckdb_version: main
+      duckdb_version: v1.4-andium
       extension_name: tributary
       ci_tools_version: main
       extra_toolchains: parser_tools
