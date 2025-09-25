@@ -19,7 +19,8 @@ include_directories(src/include)
 set(EXTENSION_SOURCES
 src/tributary_extension.cpp
 src/tributary_scan_topic.cpp
-src/tributary_config.cpp)
+src/tributary_config.cpp
+src/query_farm_telemetry.cpp)
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
