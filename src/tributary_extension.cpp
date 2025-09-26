@@ -60,7 +60,8 @@ static unique_ptr<FunctionData> TributaryMetadataBind(ClientContext &context, Ta
 	auto brokers_type = LogicalType::LIST(broker_info_type);
 
 	auto partition_info_type = LogicalType::STRUCT({
-	    {"id", LogicalTypeId::INTEGER}, {"leader", LogicalTypeId::INTEGER},
+	    {"id", LogicalTypeId::INTEGER},
+	    {"leader", LogicalTypeId::INTEGER},
 	    //{"replicas", LogicalType::LIST(LogicalType::INTEGER)},
 	    //	    {"isrs", LogicalType::LIST(LogicalType::INTEGER)},
 	});
@@ -242,7 +243,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	TributaryScanTopicAddFunction(loader);
 
-	QueryFarmSendTelemetry(loader, instance.shared_from_this(), "tributary", "2025092301");
+	QueryFarmSendTelemetry(loader, loader.GetDatabaseInstance().shared_from_this(), "tributary", "2025092301");
 }
 
 void TributaryExtension::Load(ExtensionLoader &loader) {
