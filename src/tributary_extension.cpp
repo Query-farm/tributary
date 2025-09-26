@@ -243,7 +243,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	TributaryScanTopicAddFunction(loader);
 
-	QueryFarmSendTelemetry(loader, loader.GetDatabaseInstance().shared_from_this(), "tributary", "2025092301");
+	QueryFarmSendTelemetry(loader, "tributary", "2025092301");
 }
 
 void TributaryExtension::Load(ExtensionLoader &loader) {
