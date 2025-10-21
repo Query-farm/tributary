@@ -7,6 +7,8 @@
 #include <librdkafka/rdkafkacpp.h>
 #include "tributary_config.hpp"
 #include <optional>
+#include "tributary_logging.hpp"
+#include "tributary_exception.hpp"
 
 namespace duckdb {
 
@@ -21,22 +23,29 @@ struct TributaryScanTopicPartitionTask {
 
 struct TributaryScanTopicBindData : public TableFunctionData {
 	std::unique_ptr<RdKafka::Conf> config;
-
+	std::unique_ptr<TributaryEventCb> event_cb;
 	const std::string topic;
 
-	explicit TributaryScanTopicBindData(std::string topic, std::unordered_map<string, string> config_values)
+	explicit TributaryScanTopicBindData(ClientContext &context, std::string topic,
+	                                    std::unordered_map<string, string> config_values)
 	    : topic(std::move(topic)) {
 
 		config.reset(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
 
+		std::string errstr;
 		for (auto &kv : config_values) {
 			auto &key = kv.first;
 			auto &value = kv.second;
 
-			std::string errstr;
 			if (config->set(key, value, errstr) != RdKafka::Conf::CONF_OK) {
-				throw InvalidConfigurationException("Failed to set " + key + ": " + errstr);
+				throw TributaryException(ExceptionType::INVALID_CONFIGURATION, errstr, this->topic);
 			}
+		}
+
+		event_cb = std::make_unique<TributaryEventCb>(context.shared_from_this());
+
+		if (config->set("event_cb", event_cb.get(), errstr) != RdKafka::Conf::CONF_OK) {
+			throw TributaryException(ExceptionType::INVALID_CONFIGURATION, errstr, this->topic);
 		}
 	}
 };
@@ -94,7 +103,7 @@ struct TributaryScanTopicLocalState : public LocalTableFunctionState {
 		std::string errstr;
 		consumer = std::unique_ptr<RdKafka::Consumer>(RdKafka::Consumer::create(bind_data.config.get(), errstr));
 		if (!consumer) {
-			throw InternalException("Failed to create consumer: " + errstr);
+			throw TributaryException(ExceptionType::NETWORK, "Failed to create Kafka consumer: " + errstr);
 		}
 
 		std::unique_ptr<RdKafka::Conf> tconf(RdKafka::Conf::create(RdKafka::Conf::CONF_TOPIC));
@@ -102,13 +111,13 @@ struct TributaryScanTopicLocalState : public LocalTableFunctionState {
 		    RdKafka::Topic::create(consumer.get(), bind_data.topic, tconf.get(), errstr));
 
 		if (!topic) {
-			throw InternalException("Failed to create topic: " + errstr);
+			throw TributaryException(ExceptionType::NETWORK, "Failed to create Kafka topic object: " + errstr);
 		}
 
 		RdKafka::ErrorCode err = consumer->start(topic.get(), task->partition_, RdKafka::Topic::OFFSET_BEGINNING);
 		if (err != RdKafka::ERR_NO_ERROR) {
-			throw InternalException("Failed to start consuming topic " + bind_data.topic + " partition " +
-			                        std::to_string(task->partition_) + ": " + RdKafka::err2str(err));
+			throw TributaryException(ExceptionType::NETWORK, "Failed to start consumer", err, topic->name(),
+			                         task->partition_);
 		}
 		current_task_ = task;
 		return current_task_;
@@ -117,7 +126,11 @@ struct TributaryScanTopicLocalState : public LocalTableFunctionState {
 	void finish_partition_scan() {
 		if (current_task_.has_value()) {
 			// We are done with this task, so we can reset it.
-			consumer->stop(topic.get(), current_task_->partition_);
+			auto err = consumer->stop(topic.get(), current_task_->partition_);
+			if (err != RdKafka::ERR_NO_ERROR) {
+				throw TributaryException(ExceptionType::NETWORK, "Failed to stop consumer", err, topic->name(),
+				                         current_task_->partition_);
+			}
 
 			current_task_ = std::nullopt;
 		}
@@ -139,13 +152,15 @@ static unique_ptr<FunctionData> TributaryScanTopicBind(ClientContext &context, T
 	names.push_back("topic");
 	names.push_back("partition");
 	names.push_back("offset");
+	names.push_back("key");
 	names.push_back("message");
 	return_types.push_back(LogicalType(LogicalTypeId::VARCHAR));
 	return_types.push_back(LogicalType(LogicalTypeId::INTEGER));
 	return_types.push_back(LogicalType(LogicalTypeId::BIGINT));
 	return_types.push_back(LogicalType(LogicalTypeId::BLOB));
+	return_types.push_back(LogicalType(LogicalTypeId::BLOB));
 
-	return make_uniq<TributaryScanTopicBindData>(std::move(topic), std::move(config_values));
+	return make_uniq<TributaryScanTopicBindData>(context, std::move(topic), std::move(config_values));
 }
 
 static unique_ptr<GlobalTableFunctionState> TributaryScanTopicGlobalInit(ClientContext &context,
@@ -157,7 +172,7 @@ static unique_ptr<GlobalTableFunctionState> TributaryScanTopicGlobalInit(ClientC
 	auto consumer = std::unique_ptr<RdKafka::Consumer>(RdKafka::Consumer::create(bind_data.config.get(), errstr));
 
 	if (!consumer) {
-		throw InternalException("Failed to create consumer: " + errstr);
+		throw TributaryException(ExceptionType::NETWORK, "Failed to create Kafka consumer", errstr);
 	}
 
 	// FIXME: allow additional config to be specified here.
@@ -167,27 +182,25 @@ static unique_ptr<GlobalTableFunctionState> TributaryScanTopicGlobalInit(ClientC
 	    std::unique_ptr<RdKafka::Topic>(RdKafka::Topic::create(consumer.get(), bind_data.topic, tconf, errstr));
 
 	if (!topic) {
-		throw InternalException("Failed to create topic: " + errstr);
+		throw TributaryException(ExceptionType::NETWORK, errstr, bind_data.topic);
 	}
 
 	RdKafka::Metadata *metadata;
 	RdKafka::ErrorCode err = consumer->metadata(false, topic.get(), &metadata, 5000);
 	if (err != RdKafka::ERR_NO_ERROR) {
-		throw InternalException("Failed to get topic metadata: " + RdKafka::err2str(err));
+		throw TributaryException(ExceptionType::NETWORK, "Failed to get topic metadata", err, bind_data.topic);
 	}
 
+	bool exists = false;
 	const RdKafka::TopicMetadata *topic_metadata = nullptr;
-	auto topics = metadata->topics();
-	for (auto it = topics->begin(); it != topics->end(); ++it) {
-		if ((*it)->topic() == bind_data.topic) {
-			topic_metadata = *it;
-			break;
-		}
+	if (metadata->topics()->size() == 1) {
+		topic_metadata = metadata->topics()->at(0);
+		exists = (topic_metadata->err() != RdKafka::ERR_UNKNOWN_TOPIC_OR_PART);
 	}
 
-	if (!topic_metadata) {
-		throw InternalException("Topic not found: " + bind_data.topic);
+	if (!exists) {
 		delete metadata;
+		throw TributaryException(ExceptionType::NETWORK, "Not found", bind_data.topic);
 	}
 
 	std::vector<TributaryScanTopicPartitionTask> partition_tasks;
@@ -202,15 +215,17 @@ static unique_ptr<GlobalTableFunctionState> TributaryScanTopicGlobalInit(ClientC
 		if (err == RdKafka::ERR_NO_ERROR) {
 			partition_tasks.emplace_back(partition, low, high);
 		} else {
-			throw InternalException("Failed to query watermark offsets for partition " + std::to_string(partition) +
-			                        ": " + RdKafka::err2str(err));
+			throw TributaryException(ExceptionType::NETWORK, "Failed to query watermark offsets for partition ", err,
+			                         bind_data.topic, partition);
 		}
 	}
+
+	DUCKDB_LOG(context, TributaryLogType, "Initialized Tributary scan",
+	           {{"partitions", to_string(partition_tasks.size())}, {"topic", bind_data.topic}});
 
 	auto global_state = make_uniq<TributaryScanTopicGlobalState>(partition_tasks);
 
 	delete metadata;
-
 	return global_state;
 }
 
@@ -223,12 +238,15 @@ static void TributaryScanTopic(ClientContext &context, TableFunctionInput &data,
 	auto &global_state = data.global_state->Cast<TributaryScanTopicGlobalState>();
 	auto &bind_data = data.bind_data->CastNoConst<TributaryScanTopicBindData>();
 
-	auto &message_validity = FlatVector::Validity(output.data[3]);
+	auto &key_validity = FlatVector::Validity(output.data[3]);
+	auto &message_validity = FlatVector::Validity(output.data[4]);
 	auto &topic_column = output.data[0];
-	auto &message_column = output.data[3];
+	auto &key_column = output.data[3];
+	auto &message_column = output.data[4];
 	auto topic_vector = FlatVector::GetData<string_t>(topic_column);
 	auto partition_id_vector = FlatVector::GetData<int32_t>(output.data[1]);
 	auto offset_vector = FlatVector::GetData<int64_t>(output.data[2]);
+	auto key_vector = FlatVector::GetData<string_t>(key_column);
 	auto message_vector = FlatVector::GetData<string_t>(message_column);
 
 	// If we don't have a partition task to process, attempt to get one from the global state.
@@ -256,10 +274,15 @@ static void TributaryScanTopic(ClientContext &context, TableFunctionInput &data,
 				partition_id_vector[message_idx] = task->partition_;
 				offset_vector[message_idx] = msg->offset();
 
-				if (msg->payload()) {
-					//					auto content = std::string(static_cast<const char *>(msg->payload()),
-					// msg->len());
+				if (msg->key()) {
+					key_vector[message_idx] = StringVector::AddStringOrBlob(
+					    key_column, static_cast<const char *>(msg->key()->c_str()), msg->key()->size());
+				} else {
+					// Need to specify that the key is null.
+					key_validity.SetInvalid(message_idx);
+				}
 
+				if (msg->payload()) {
 					message_vector[message_idx] = StringVector::AddStringOrBlob(
 					    message_column, static_cast<const char *>(msg->payload()), msg->len());
 				} else {
@@ -275,15 +298,13 @@ static void TributaryScanTopic(ClientContext &context, TableFunctionInput &data,
 				break;
 			}
 			case RdKafka::ERR__TIMED_OUT:
-				throw InternalException("Timed out while consuming topic " + bind_data.topic + " partition " +
-				                        std::to_string(task->partition_));
+				throw TributaryException(ExceptionType::NETWORK, msg->err(), bind_data.topic, task->partition_);
 
 			case RdKafka::ERR__PARTITION_EOF:
 				end_of_partition_reached = true;
 				break;
 			default:
-				throw InternalException("Consume error on partition " + std::to_string(task->partition_) + ": " +
-				                        RdKafka::err2str(msg->err()));
+				throw TributaryException(ExceptionType::NETWORK, msg->err(), bind_data.topic, task->partition_);
 			}
 		}
 
@@ -310,13 +331,20 @@ static unique_ptr<LocalTableFunctionState> TributaryScanTopicLocalInit(Execution
 }
 
 void TributaryScanTopicAddFunction(ExtensionLoader &loader) {
-	auto scan_topic_function =
-	    TableFunction("tributary_scan_topic", {LogicalType::VARCHAR}, TributaryScanTopic, TributaryScanTopicBind,
-	                  TributaryScanTopicGlobalInit, TributaryScanTopicLocalInit);
+
+	auto scan_topic_function = TableFunctionSet("tributary_scan_topic");
+
+	auto no_options = TableFunction("tributary_scan_topic", {LogicalType::VARCHAR}, TributaryScanTopic,
+	                                TributaryScanTopicBind, TributaryScanTopicGlobalInit, TributaryScanTopicLocalInit);
 
 	for (auto &key : TributaryConfigKeys()) {
-		scan_topic_function.named_parameters[key] = LogicalType(LogicalTypeId::VARCHAR);
+		no_options.named_parameters[key] = LogicalType(LogicalTypeId::VARCHAR);
 	}
+
+	// So we should support a limit option for total records to scan.
+	no_options.named_parameters["limit"] = LogicalType(LogicalTypeId::UBIGINT);
+
+	scan_topic_function.AddFunction(no_options);
 
 	loader.RegisterFunction(scan_topic_function);
 }

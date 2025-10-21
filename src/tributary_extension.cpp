@@ -8,6 +8,8 @@
 
 #include "tributary_scan_topic.hpp"
 #include "tributary_config.hpp"
+#include "tributary_exception.hpp"
+#include "tributary_logging.hpp"
 #include "query_farm_telemetry.hpp"
 
 namespace duckdb {
@@ -36,9 +38,8 @@ struct TributaryMetadataBindData : public TableFunctionData {
 			auto &value = kv.second;
 
 			std::string errstr;
-			printf("Setting configuration: %s = %s\n", key.c_str(), value.c_str());
 			if (config->set(key, value, errstr) != RdKafka::Conf::CONF_OK) {
-				throw InvalidConfigurationException("Failed to set " + key + ": " + errstr);
+				throw TributaryException(ExceptionType::INVALID_CONFIGURATION, errstr);
 			}
 		}
 	}
@@ -94,7 +95,7 @@ static void TributaryMetadata(ClientContext &context, TableFunctionInput &data, 
 
 	std::unique_ptr<RdKafka::Producer> producer(RdKafka::Producer::create(bind_data.config.get(), errstr));
 	if (!producer) {
-		throw InvalidConfigurationException("Failed to create Kafka producer: " + errstr);
+		throw TributaryException(ExceptionType::INVALID_CONFIGURATION, "Failed to create Kafka producer", errstr);
 	}
 
 	RdKafka::Metadata *metadata_ptr = nullptr;
@@ -103,7 +104,7 @@ static void TributaryMetadata(ClientContext &context, TableFunctionInput &data, 
 	// Get metadata for all topics
 	err = producer->metadata(true, nullptr, &metadata_ptr, 5000);
 	if (err != RdKafka::ERR_NO_ERROR) {
-		throw InternalException("Failed to get metadata: " + RdKafka::err2str(err));
+		throw TributaryException(ExceptionType::INVALID_CONFIGURATION, "Failed to get metadata", err);
 	}
 
 	// Use smart pointer for automatic cleanup
@@ -222,7 +223,7 @@ static void TributaryMetadata(ClientContext &context, TableFunctionInput &data, 
 
 static inline void TributaryVersionFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 	result.SetVectorType(VectorType::CONSTANT_VECTOR);
-	result.SetValue(0, Value("20250612.01"));
+	result.SetValue(0, Value("20251020.01"));
 }
 
 static void LoadInternal(ExtensionLoader &loader) {
@@ -243,7 +244,10 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	TributaryScanTopicAddFunction(loader);
 
-	QueryFarmSendTelemetry(loader, "tributary", "2025092301");
+	auto &log_manager = loader.GetDatabaseInstance().GetLogManager();
+	log_manager.RegisterLogType(make_uniq<TributaryLogType>());
+
+	//	QueryFarmSendTelemetry(loader, "tributary", "2025102001");
 }
 
 void TributaryExtension::Load(ExtensionLoader &loader) {

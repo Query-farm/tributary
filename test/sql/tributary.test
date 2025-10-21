@@ -4,16 +4,16 @@
 
 # Before we load the extension, this will fail
 statement error
-SELECT tributary('Sam');
+SELECT * from tributary_metadata("bootstrap.servers" := 'localhost:9092')
 ----
-Catalog Error: Scalar Function with name tributary does not exist!
+Catalog Error: Table Function with name tributary_metadata does not exist!
 
 # Require statement will ensure this test is run with this extension loaded
 require tributary
 
 # Confirm the extension works
 query I
-SELECT tributary('Sam');
+SELECT count(*) from tributary_metadata("bootstrap.servers" := 'localhost:9092')
 ----
-Tributary Sam 🐥
+1
 

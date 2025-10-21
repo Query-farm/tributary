@@ -20,6 +20,8 @@ set(EXTENSION_SOURCES
 src/tributary_extension.cpp
 src/tributary_scan_topic.cpp
 src/tributary_config.cpp
+src/tributary_exception.cpp
+src/tributary_logging.cpp
 src/query_farm_telemetry.cpp)
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
