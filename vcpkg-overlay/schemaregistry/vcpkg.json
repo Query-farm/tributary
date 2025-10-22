@@ -1,0 +1,68 @@
+{
+  "name": "schemaregistry",
+  "version": "0.0.4",
+  "description": "A C++ client library for interacting with Confluent Schema Registry.",
+  "homepage": "https://github.com/confluentinc/libschemaregistry",
+  "license": "APACHE-2.0",
+  "default-features": [
+    "json"
+  ],
+  "features": {
+    "avro": {
+      "description": "Enable Avro serialization support",
+      "dependencies": [
+        "avro-cpp"
+      ]
+    },
+    "json": {
+      "description": "Enable JSON serialization support",
+      "dependencies": [
+        "jsoncons",
+        "nlohmann-json"
+      ]
+    },
+    "protobuf": {
+      "description": "Enable Protobuf serialization support",
+      "dependencies": [
+        "protobuf"
+      ]
+    },
+    "rules": {
+      "description": "Enable Schema Registry Rules support",
+      "dependencies": [
+        {
+          "name": "aws-sdk-cpp",
+          "default-features": false,
+          "features": [
+            "kms",
+            "identity-management"
+          ]
+        },
+        "azure-identity-cpp",
+        "azure-security-keyvault-keys-cpp",
+        {
+          "name": "google-cloud-cpp",
+          "default-features": false,
+          "features": [
+            "kms"
+          ]
+        },
+        "libvault"
+      ]
+    }
+  },
+  "dependencies": [
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    },
+    "abseil",
+    "gtest",
+    "openssl",
+    "cpr"
+  ]
+}

@@ -342,7 +342,7 @@ void TributaryScanTopicAddFunction(ExtensionLoader &loader) {
 	}
 
 	// So we should support a limit option for total records to scan.
-	no_options.named_parameters["limit"] = LogicalType(LogicalTypeId::UBIGINT);
+	// no_options.named_parameters["limit"] = LogicalType(LogicalTypeId::UBIGINT);
 
 	scan_topic_function.AddFunction(no_options);
 
