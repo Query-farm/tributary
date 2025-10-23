@@ -25,6 +25,15 @@ src/tributary_exception.cpp
 src/tributary_logging.cpp
 src/tributary_schema_registry.cpp
 src/tributary_secrets.cpp
+src/tributary_schema_registry_register_schema.cpp
+src/tributary_schema_registry_get_schema_by_subject_and_id.cpp
+src/tributary_schema_registry_get_schema_by_guid.cpp
+src/tributary_schema_registry_get_schema_by_version.cpp
+src/tributary_schema_registry_get_schema_latest.cpp
+src/tributary_schema_registry_versions.cpp
+src/tributary_schema_registry_subjects.cpp
+src/tributary_schema_registry_delete_subject.cpp
+src/tributary_schema_registry_delete_subject_version.cpp
 src/query_farm_telemetry.cpp)
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})

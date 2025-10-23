@@ -16,8 +16,6 @@
 #include "tributary_secrets.hpp"
 namespace duckdb {
 
-namespace {
-
 void TributarySchemaRegistryPopulateAuth(schemaregistry::rest::ClientConfiguration &client_config,
                                          ClientContext &context, const string &schema_registry_url) {
 	// Retrieve secret for authentication
@@ -37,6 +35,8 @@ void TributarySchemaRegistryPopulateAuth(schemaregistry::rest::ClientConfigurati
 		}
 	}
 }
+
+namespace {
 
 void TributarySchemaRegistrySerializeFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 	auto &schema_registry_url_vector = args.data[0];
@@ -87,13 +87,107 @@ void TributarySchemaRegistrySerializeFunction(DataChunk &args, ExpressionState &
 		    return vector_result;
 	    });
 }
+// namespace
+
 } // namespace
+
+void TributarySchemaRegistryAddRegisteredSchemaColumns(vector<string> &names, vector<LogicalType> &return_types) {
+	const vector<pair<string, LogicalType>> columns = {
+	    {"id", LogicalType::INTEGER},      {"guid", LogicalType::VARCHAR},        {"subject", LogicalType::VARCHAR},
+	    {"version", LogicalType::INTEGER}, {"schema_type", LogicalType::VARCHAR}, {"schema", LogicalType::VARCHAR}};
+
+	for (const auto &column : columns) {
+		names.push_back(column.first);
+		return_types.push_back(column.second);
+	}
+}
+
+void TributarySchemaRegistryAddRegisterSchemaFunction(ExtensionLoader &loader);
+void TributarySchemaRegistryAddGetSchemaBySubjectAndIdFunction(ExtensionLoader &loader);
+void TributarySchemaRegistryAddGetSchemaByGuidFunction(ExtensionLoader &loader);
+void TributarySchemaRegistryAddGetSchemaByVersionFunction(ExtensionLoader &loader);
+void TributarySchemaRegistryAddGetSchemaLatestFunction(ExtensionLoader &loader);
+void TributarySchemaRegistryAddAllVersionsFunction(ExtensionLoader &loader);
+void TributarySchemaRegistryAddGetSubjectsFunction(ExtensionLoader &loader);
+void TributarySchemaRegistryAddDeleteSubjectFunction(ExtensionLoader &loader);
+void TributarySchemaRegistryAddDeleteSubjectVersionFunction(ExtensionLoader &loader);
 
 void TributarySchemaRegistryAddFunctions(ExtensionLoader &loader) {
 	loader.RegisterFunction(
 	    ScalarFunction("tributary_schema_registry_serialize_json",
 	                   {LogicalType::VARCHAR, LogicalType::JSON(), LogicalType::VARCHAR, LogicalType::JSON()},
 	                   LogicalType::BLOB, TributarySchemaRegistrySerializeFunction));
+
+	TributarySchemaRegistryAddRegisterSchemaFunction(loader);
+	TributarySchemaRegistryAddGetSchemaBySubjectAndIdFunction(loader);
+	TributarySchemaRegistryAddGetSchemaByGuidFunction(loader);
+	TributarySchemaRegistryAddGetSchemaByVersionFunction(loader);
+	TributarySchemaRegistryAddGetSchemaLatestFunction(loader);
+	TributarySchemaRegistryAddAllVersionsFunction(loader);
+	TributarySchemaRegistryAddGetSubjectsFunction(loader);
+	TributarySchemaRegistryAddDeleteSubjectFunction(loader);
+	TributarySchemaRegistryAddDeleteSubjectVersionFunction(loader);
+
+	// To work with the schema registry we need to expose some of the API.
+	// from the rest interface as TableReturningFunctions and scalar functions.
+
+	// /**
+	//  * Get registered schema by subject and schema
+	//  */
+	// virtual schemaregistry::rest::model::RegisteredSchema getBySchema(
+	//     const std::string &subject,
+	//     const schemaregistry::rest::model::Schema &schema,
+	//     bool normalize = false, bool deleted = false) = 0;
+
+	// /**
+	//  * Get registered schema by subject and version
+	//  */
+	// virtual schemaregistry::rest::model::RegisteredSchema getVersion(
+	//     const std::string &subject, int32_t version, bool deleted = false,
+	//     const std::optional<std::string> &format = std::nullopt) = 0;
+
+	// /**
+	//  * Get latest version of schema for subject
+	//  */
+	// virtual schemaregistry::rest::model::RegisteredSchema getLatestVersion(
+	//     const std::string &subject,
+	//     const std::optional<std::string> &format = std::nullopt) = 0;
+
+	// /**
+	//  * Get latest version with metadata
+	//  */
+	// virtual schemaregistry::rest::model::RegisteredSchema getLatestWithMetadata(
+	//     const std::string &subject,
+	//     const std::unordered_map<std::string, std::string> &metadata,
+	//     bool deleted = false,
+	//     const std::optional<std::string> &format = std::nullopt) = 0;
+
+	// /**
+	//  * Delete subject
+	//  */
+	// virtual std::vector<int32_t> deleteSubject(const std::string &subject,
+	//                                            bool permanent = false) = 0;
+
+	// /**
+	//  * Delete subject version
+	//  */
+	// virtual int32_t deleteSubjectVersion(const std::string &subject,
+	//                                      int32_t version,
+	//                                      bool permanent = false) = 0;
+
+	// /**
+	//  * Test schema compatibility with latest version
+	//  */
+	// virtual bool testSubjectCompatibility(
+	//     const std::string &subject,
+	//     const schemaregistry::rest::model::Schema &schema) = 0;
+
+	// /**
+	//  * Test schema compatibility with specific version
+	//  */
+	// virtual bool testCompatibility(
+	//     const std::string &subject, int32_t version,
+	//     const schemaregistry::rest::model::Schema &schema) = 0;
 }
 
 } // namespace duckdb
