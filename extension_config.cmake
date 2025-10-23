@@ -6,5 +6,6 @@ duckdb_extension_load(tributary
     LOAD_TESTS
 )
 
+duckdb_extension_load(json)
 # Any extra extensions that should be built
 # e.g.: duckdb_extension_load(json)

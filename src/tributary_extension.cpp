@@ -10,6 +10,8 @@
 #include "tributary_config.hpp"
 #include "tributary_exception.hpp"
 #include "tributary_logging.hpp"
+#include "tributary_secrets.hpp"
+#include "tributary_schema_registry.hpp"
 #include "query_farm_telemetry.hpp"
 
 namespace duckdb {
@@ -243,6 +245,8 @@ static void LoadInternal(ExtensionLoader &loader) {
 	loader.RegisterFunction(version_function);
 
 	TributaryScanTopicAddFunction(loader);
+	TributarySchemaRegistryAddFunctions(loader);
+	TributaryCreateSecrets(loader);
 
 	auto &log_manager = loader.GetDatabaseInstance().GetLogManager();
 	log_manager.RegisterLogType(make_uniq<TributaryLogType>());
