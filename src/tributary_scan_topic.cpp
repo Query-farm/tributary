@@ -23,6 +23,7 @@
 #include "schemaregistry/serdes/json/JsonDeserializer.h"
 
 #include "tributary_schema_registry.hpp"
+#include "tributary_secrets.hpp"
 
 namespace duckdb {
 
@@ -289,13 +290,38 @@ TributarySchemaRegistryConvertSchemaToFields(const std::string &topic, const std
 	return result_fields;
 }
 
+static bool starts_with(const std::string &str, const std::string &prefix) {
+	return str.size() >= prefix.size() && str.compare(0, prefix.size(), prefix) == 0;
+}
+
 static unique_ptr<FunctionData> TributaryScanTopicBind(ClientContext &context, TableFunctionBindInput &input,
                                                        vector<LogicalType> &return_types, vector<string> &names) {
 
 	auto topic = input.inputs[0].GetValue<string>();
 
+	if (topic.empty()) {
+		throw InvalidInputException("Topic name cannot be empty");
+	}
+
 	std::unordered_map<string, string> config_values;
 	string schema_registry_url;
+
+	// Get any secret that matches this scope the for the basic configuation.
+	auto secret_match = TributaryGetSecretByPath(context, TRIBUTARY_CLUSTER_SECRET_TYPE, topic);
+	if (secret_match.HasMatch()) {
+		const auto &kv_secret = dynamic_cast<const KeyValueSecret &>(*secret_match.secret_entry->secret);
+		// Now can we iterate over all of the values that we know we can configure.
+		for (auto &config_value : TributaryConfigKeys()) {
+			Value input_val = kv_secret.TryGetValue(config_value);
+			if (!input_val.IsNull()) {
+				if (config_value == "schema.registry.url") {
+					schema_registry_url = input_val.ToString();
+					continue;
+				}
+				config_values[config_value] = input_val.ToString();
+			}
+		}
+	}
 
 	for (auto &kv : input.named_parameters) {
 		auto loption = StringUtil::Lower(kv.first);
@@ -304,6 +330,16 @@ static unique_ptr<FunctionData> TributaryScanTopicBind(ClientContext &context, T
 			schema_registry_url = StringValue::Get(kv.second);
 		} else {
 			config_values[loption] = StringValue::Get(kv.second);
+		}
+	}
+
+	// Since the topic name could be encoded in a kafka:// uri scheme, we need to extract just the topic name.
+	if (starts_with(topic, "kafka://")) {
+		auto pos = topic.find('/', 8); // find the first '/' after 'kafka://'
+		if (pos != string::npos) {
+			topic = topic.substr(pos + 1);
+		} else {
+			throw InvalidInputException("Invalid kafka:// URI format for topic: '%s'", topic);
 		}
 	}
 
@@ -636,17 +672,26 @@ void TributaryScanTopicAddFunction(ExtensionLoader &loader) {
 
 	auto scan_topic_function = TableFunctionSet("tributary_scan_topic");
 
-	auto no_options = TableFunction("tributary_scan_topic", {LogicalType::VARCHAR}, TributaryScanTopic,
-	                                TributaryScanTopicBind, TributaryScanTopicGlobalInit, TributaryScanTopicLocalInit);
+	// We are going to have a number of different ways to scan a topic.
+	//
+	// mostly we want to allow a secret to be specified.
+	// topic_name, config...
+	// topic_name, cluster_name, config...
+
+	auto no_cluster_name =
+	    TableFunction("tributary_scan_topic", {LogicalType::VARCHAR}, TributaryScanTopic, TributaryScanTopicBind,
+	                  TributaryScanTopicGlobalInit, TributaryScanTopicLocalInit);
 
 	for (auto &key : TributaryConfigKeys()) {
-		no_options.named_parameters[key] = LogicalType(LogicalTypeId::VARCHAR);
+		no_cluster_name.named_parameters[key] = LogicalType(LogicalTypeId::VARCHAR);
 	}
+
+	//			cluster_name.named_parameters[key] = LogicalType(LogicalTypeId::VARCHAR);
 
 	// So we should support a limit option for total records to scan.
 	// no_options.named_parameters["limit"] = LogicalType(LogicalTypeId::UBIGINT);
 
-	scan_topic_function.AddFunction(no_options);
+	scan_topic_function.AddFunction(no_cluster_name);
 
 	loader.RegisterFunction(scan_topic_function);
 }

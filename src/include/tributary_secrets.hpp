@@ -5,6 +5,7 @@ namespace duckdb {
 unique_ptr<SecretEntry> TributaryGetSecretByName(ClientContext &context, const string &secret_name);
 
 #define TRIBUTARY_SCHEMA_REGISTRY_SECRET_TYPE "tributary_schema_registry"
+#define TRIBUTARY_CLUSTER_SECRET_TYPE         "tributary_cluster"
 
 SecretMatch TributaryGetSecretByPath(ClientContext &context, const string &secret_type, const string &path);
 

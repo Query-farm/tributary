@@ -3,6 +3,7 @@
 
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "tributary_secrets.hpp"
+#include "tributary_config.hpp"
 
 namespace duckdb {
 
@@ -51,13 +52,14 @@ SecretMatch TributaryGetSecretByPath(ClientContext &context, const string &secre
 // }
 
 namespace {
+
 unique_ptr<BaseSecret> TributarySchemaRegistryCreateSecretFunction(ClientContext &, CreateSecretInput &input) {
 	// apply any overridden settings
 	vector<string> prefix_paths;
 
 	auto scope = input.scope;
 	if (scope.empty()) {
-		throw InternalException("No scope set for schema registry secret: '%s'", input.type);
+		throw InvalidInputException("No scope set for schema registry secret: '%s'", input.type);
 	}
 
 	auto result = make_uniq<KeyValueSecret>(scope, TRIBUTARY_SCHEMA_REGISTRY_SECRET_TYPE, "config", input.name);
@@ -71,7 +73,7 @@ unique_ptr<BaseSecret> TributarySchemaRegistryCreateSecretFunction(ClientContext
 		} else if (lower_name == "bearer_access_token") {
 			result->secret_map["bearer_access_token"] = named_param.second.ToString();
 		} else {
-			throw InternalException("Unknown parameter passed: " + lower_name);
+			throw InvalidInputException("Unknown parameter passed: " + lower_name);
 		}
 	}
 
@@ -87,20 +89,94 @@ void TributarySchemaRegistrySetSecretParameters(CreateSecretFunction &function) 
 	function.named_parameters["bearer_access_token"] = LogicalType::VARCHAR;
 }
 
+static bool starts_with(const std::string &str, const std::string &prefix) {
+	return str.size() >= prefix.size() && str.compare(0, prefix.size(), prefix) == 0;
+}
+
+unique_ptr<BaseSecret> TributaryClusterCreateSecretFunction(ClientContext &, CreateSecretInput &input) {
+	// apply any overridden settings
+	vector<string> prefix_paths;
+
+	auto scope = input.scope;
+	if (scope.empty()) {
+		throw InvalidInputException("No scope set for cluster secret: '%s'", input.type);
+	}
+
+	for (auto &scope_part : scope) {
+		if (!starts_with(scope_part, "kafka://")) {
+			throw InvalidInputException("Invalid scope part for cluster secret: '%s'. Must start with 'kafka://'",
+			                            scope_part);
+		}
+	}
+
+	auto result = make_uniq<KeyValueSecret>(scope, TRIBUTARY_CLUSTER_SECRET_TYPE, "config", input.name);
+
+	std::unordered_set<string> existing_params;
+	for (auto &named_param : TributaryConfigKeys()) {
+		existing_params.insert(named_param);
+	}
+
+	for (const auto &named_param : input.options) {
+		auto lower_name = StringUtil::Lower(named_param.first);
+
+		if (existing_params.find(lower_name) == existing_params.end()) {
+			throw InvalidInputException("Unknown parameter passed: " + lower_name);
+		}
+		result->secret_map[lower_name] = named_param.second;
+	}
+
+	result->redact_keys = {
+	    // SASL / Authentication
+	    "sasl.username",
+	    "sasl.password",
+	    "sasl.oauthbearer.token",
+	    "sasl.jaas.config",
+
+	    // SSL / TLS
+	    "ssl.key.password",
+	    "ssl.keystore.password",
+	    "ssl.truststore.password",
+
+	    // Optional: if keys/certs are embedded
+	    "ssl.certificate.location",
+	    "ssl.key.location",
+	};
+
+	return result;
+}
+
+void TributaryClusterSetSecretParameters(CreateSecretFunction &function) {
+	for (const auto &config_key : TributaryConfigKeys()) {
+		function.named_parameters[config_key] = LogicalType::VARCHAR;
+	}
+}
+
 } // namespace
 
 void TributaryCreateSecrets(ExtensionLoader &loader) {
-	SecretType secret_type;
-	secret_type.name = TRIBUTARY_SCHEMA_REGISTRY_SECRET_TYPE;
-	secret_type.deserializer = KeyValueSecret::Deserialize<KeyValueSecret>;
-	secret_type.default_provider = "config";
+	SecretType schema_registry_secret_type;
+	schema_registry_secret_type.name = TRIBUTARY_SCHEMA_REGISTRY_SECRET_TYPE;
+	schema_registry_secret_type.deserializer = KeyValueSecret::Deserialize<KeyValueSecret>;
+	schema_registry_secret_type.default_provider = "config";
 
-	loader.RegisterSecretType(secret_type);
+	loader.RegisterSecretType(schema_registry_secret_type);
 
-	CreateSecretFunction tributary_schema_registry_function = {TRIBUTARY_SCHEMA_REGISTRY_SECRET_TYPE, "config",
-	                                                           TributarySchemaRegistryCreateSecretFunction};
-	TributarySchemaRegistrySetSecretParameters(tributary_schema_registry_function);
-	loader.RegisterFunction(tributary_schema_registry_function);
+	CreateSecretFunction schema_registry_create_function = {TRIBUTARY_SCHEMA_REGISTRY_SECRET_TYPE, "config",
+	                                                        TributarySchemaRegistryCreateSecretFunction};
+	TributarySchemaRegistrySetSecretParameters(schema_registry_create_function);
+	loader.RegisterFunction(schema_registry_create_function);
+
+	SecretType cluster_secret_type;
+	cluster_secret_type.name = TRIBUTARY_CLUSTER_SECRET_TYPE;
+	cluster_secret_type.deserializer = KeyValueSecret::Deserialize<KeyValueSecret>;
+	cluster_secret_type.default_provider = "config";
+
+	loader.RegisterSecretType(cluster_secret_type);
+
+	CreateSecretFunction cluster_create_function = {TRIBUTARY_CLUSTER_SECRET_TYPE, "config",
+	                                                TributaryClusterCreateSecretFunction};
+	TributaryClusterSetSecretParameters(cluster_create_function);
+	loader.RegisterFunction(cluster_create_function);
 }
 
 } // namespace duckdb
