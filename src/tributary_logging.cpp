@@ -48,7 +48,7 @@ static LogLevel ConvertKafkaLogLevel(RdKafka::Event::Severity severity) {
 	case RdKafka::Event::EVENT_SEVERITY_ERROR:
 		return LogLevel::LOG_ERROR;
 	case RdKafka::Event::EVENT_SEVERITY_WARNING:
-		return LogLevel::LOG_WARN;
+		return LogLevel::LOG_WARNING;
 	case RdKafka::Event::EVENT_SEVERITY_NOTICE:
 	case RdKafka::Event::EVENT_SEVERITY_INFO:
 		return LogLevel::LOG_INFO;
@@ -88,7 +88,7 @@ void TributaryEventCb::event_cb(RdKafka::Event &event) {
 			throw TributaryException(ExceptionType::NETWORK, event.str(), info_map);
 		}
 	} else if (event.type() == RdKafka::Event::EVENT_THROTTLE) {
-		T_LOG(*context, LogLevel::LOG_WARN, event.str(),
+		T_LOG(*context, LogLevel::LOG_WARNING, event.str(),
 		      {
 		          {"broker", event.broker_name()},
 		          {"broker_id", to_string(event.broker_id())},
