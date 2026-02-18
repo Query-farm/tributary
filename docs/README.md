@@ -10,6 +10,13 @@ The **Tributary** extension provides seamless integration between DuckDB and [Ap
 - **Kafka Output:** Optionally write results or processed data back to Kafka topics.
 - **SQL-Native Interface:** Kafka integration is fully accessible via SQL, enabling easy adoption for data engineers and analysts.
 
+## Installation
+
+```sql
+INSTALL tributary FROM community;
+LOAD tributary;
+```
+
 ## Example Usage
 ```sql
 
@@ -61,8 +68,6 @@ GEN=ninja make
 
 ## Running the extension
 To run the extension code, simply start the shell with `./build/release/duckdb`. This shell will have the extension pre-loaded.
-
-```
 
 ## Running the tests
 Different tests can be created for DuckDB extensions. The primary way of testing DuckDB extensions should be the SQL tests in `./test/sql`. These SQL tests can be run using:
