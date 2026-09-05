@@ -63,6 +63,13 @@ foreach(_dep IN LISTS _tributary_iface)
 endforeach()
 set_target_properties(${EXTENSION_NAME} PROPERTIES INTERFACE_LINK_LIBRARIES "${_tributary_iface_link_only}")
 
+# librdkafka / schemaregistry headers include <windows.h>, whose min/max macros
+# break std::min(...) on MSVC (error C2589 "illegal token on right side of '::'").
+if(WIN32)
+  target_compile_definitions(${EXTENSION_NAME} PRIVATE NOMINMAX)
+  target_compile_definitions(${LOADABLE_EXTENSION_NAME} PRIVATE NOMINMAX)
+endif()
+
 install(
   TARGETS ${EXTENSION_NAME}
   EXPORT "${DUCKDB_EXPORT_SET}"
