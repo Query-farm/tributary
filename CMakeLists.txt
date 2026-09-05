@@ -42,6 +42,27 @@ build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 target_link_libraries(${EXTENSION_NAME} RdKafka::rdkafka RdKafka::rdkafka++ schemaregistry::schemaregistry)
 target_link_libraries(${LOADABLE_EXTENSION_NAME} RdKafka::rdkafka RdKafka::rdkafka++  schemaregistry::schemaregistry)
 
+# DuckDB links every statically built extension into its own executables
+# (link_extension_libraries: shell, unittest, tools/plan_serializer), so this
+# target's link interface becomes a usage requirement of those C++11 DuckDB
+# sources. schemaregistry brings in absl, whose INTERFACE cxx_std_17 then
+# compiles tools/utils/plan_serializer.cpp as C++17: BufferedFileWriter::
+# DEFAULT_OPEN_FLAGS becomes an inline (COMDAT) definition there and clashes
+# with the out-of-line C++11 definition in libduckdb_static -> "multiple
+# definition" at link time. Keep the link dependencies for consumers but drop
+# the usage requirements (LINK_ONLY). The plain target_link_libraries signature
+# is kept because build_static_extension already uses it on this target.
+get_target_property(_tributary_iface ${EXTENSION_NAME} INTERFACE_LINK_LIBRARIES)
+set(_tributary_iface_link_only "")
+foreach(_dep IN LISTS _tributary_iface)
+  if(_dep STREQUAL "duckdb_static")
+    list(APPEND _tributary_iface_link_only "${_dep}")
+  else()
+    list(APPEND _tributary_iface_link_only "$<LINK_ONLY:${_dep}>")
+  endif()
+endforeach()
+set_target_properties(${EXTENSION_NAME} PROPERTIES INTERFACE_LINK_LIBRARIES "${_tributary_iface_link_only}")
+
 install(
   TARGETS ${EXTENSION_NAME}
   EXPORT "${DUCKDB_EXPORT_SET}"
