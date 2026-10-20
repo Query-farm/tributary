@@ -149,15 +149,35 @@ static void TributaryMetadata(ClientContext &context, TableFunctionInput &data, 
 	{
 		auto &topics_dest = output.data[1];
 
-		auto topics_data = ListVector::GetData(topics_dest);
-
 		const RdKafka::Metadata::TopicMetadataVector *topics = metadata->topics();
+
+		// Reserve the topics list (and the nested partitions list) before taking any data pointers: the lists
+		// start with a fixed capacity, and growing them past it reallocates the child vectors.
+		const auto topics_list_current_size = ListVector::GetListSize(topics_dest);
+		const auto topics_list_new_size = topics_list_current_size + topics->size();
+		ListVector::Reserve(topics_dest, topics_list_new_size);
+		ListVector::SetListSize(topics_dest, topics_list_new_size);
+
+		auto topics_data = ListVector::GetData(topics_dest);
+		topics_data[0].length = topics->size();
+		topics_data[0].offset = topics_list_current_size;
 
 		{
 			auto &topics_entries = StructVector::GetEntries(ListVector::GetEntry(topics_dest));
 			auto &topic_name_column = topics_entries[0];
 			auto &topic_error_column = topics_entries[1];
 			auto &topic_partitions_column = topics_entries[2];
+
+			idx_t total_partitions = 0;
+			for (size_t topic_idx = 0; topic_idx < topics->size(); topic_idx++) {
+				auto topic = topics->at(topic_idx);
+				if (topic->err() == RdKafka::ERR_NO_ERROR) {
+					total_partitions += topic->partitions()->size();
+				}
+			}
+			const auto partitions_list_start = ListVector::GetListSize(*topic_partitions_column);
+			ListVector::Reserve(*topic_partitions_column, partitions_list_start + total_partitions);
+			ListVector::SetListSize(*topic_partitions_column, partitions_list_start + total_partitions);
 
 			auto topic_name_data = FlatVector::GetData<string_t>(*topic_name_column);
 			auto topic_error_data = FlatVector::GetData<string_t>(*topic_error_column);
@@ -170,54 +190,37 @@ static void TributaryMetadata(ClientContext &context, TableFunctionInput &data, 
 			auto &topic_partition_entries = StructVector::GetEntries(topic_partitions_dest);
 			auto &topic_partitions_id_column = topic_partition_entries[0];
 			auto &topic_partitions_leader_column = topic_partition_entries[1];
-			// auto &topic_partition_replicas_column = topic_partition_entries[2];
 
 			auto topic_partition_name_data = FlatVector::GetData<int32_t>(*topic_partitions_id_column);
 			auto topic_partition_leader_data = FlatVector::GetData<int32_t>(*topic_partitions_leader_column);
 
-			// topic_partitions_data[0].length = 0;
-			// topic_partitions_data[0].offset = 0;
-
-			// 	// Now there is a list vector of partitions inside of each topic.
-
-			// 	auto partitions_id_data = FlatVector::GetData<int32_t>(*partitions_id_column);
-			// 	auto partitions_leader_data = FlatVector::GetData<int32_t>(*partitions_leader_column);
-			const auto topics_list_current_size = ListVector::GetListSize(topics_dest);
-			const auto topics_list_new_size = topics_list_current_size + topics->size();
-			topics_data[0].length = topics_list_new_size;
-			topics_data[0].offset = topics_list_current_size;
-			ListVector::SetListSize(topics_dest, topics_list_new_size);
-
+			auto partitions_offset = partitions_list_start;
 			for (size_t topic_idx = 0; topic_idx < topics->size(); topic_idx++) {
-
 				auto topic = topics->at(topic_idx);
+				const auto row = topics_list_current_size + topic_idx;
 
-				topic_name_data[topics_list_current_size + topic_idx] =
-				    StringVector::AddString(*topic_name_column, topic->topic());
+				topic_name_data[row] = StringVector::AddString(*topic_name_column, topic->topic());
 
 				if (topic->err() != RdKafka::ERR_NO_ERROR) {
-					topic_error_data[topics_list_current_size + topic_idx] =
+					topic_error_data[row] =
 					    StringVector::AddString(*topic_error_column, RdKafka::err2str(topic->err()));
-					// 			partitions_data[0].length = 0;
-					// 			partitions_data[0].offset = 0;
+					topic_partitions_data[row].length = 0;
+					topic_partitions_data[row].offset = partitions_offset;
 					continue;
 				}
-				topic_error_validity.SetInvalid(topic_idx);
+				topic_error_validity.SetInvalid(row);
 
 				const RdKafka::TopicMetadata::PartitionMetadataVector *partitions = topic->partitions();
 
-				const auto partitions_list_current_size = ListVector::GetListSize(*topic_partitions_column);
-				const auto partitions_list_new_size = partitions_list_current_size + partitions->size();
-
-				topic_partitions_data[topic_idx].length = partitions->size();
-				topic_partitions_data[topic_idx].offset = partitions_list_current_size;
-				ListVector::SetListSize(*topic_partitions_column, partitions_list_new_size);
+				topic_partitions_data[row].length = partitions->size();
+				topic_partitions_data[row].offset = partitions_offset;
 
 				for (size_t partition_idx = 0; partition_idx < partitions->size(); partition_idx++) {
 					auto partition = partitions->at(partition_idx);
-					topic_partition_name_data[partitions_list_current_size + partition_idx] = partition->id();
-					topic_partition_leader_data[partitions_list_current_size + partition_idx] = partition->leader();
+					topic_partition_name_data[partitions_offset + partition_idx] = partition->id();
+					topic_partition_leader_data[partitions_offset + partition_idx] = partition->leader();
 				}
+				partitions_offset += partitions->size();
 			}
 		}
 	}
