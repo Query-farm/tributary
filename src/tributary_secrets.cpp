@@ -122,7 +122,7 @@ unique_ptr<BaseSecret> TributaryClusterCreateSecretFunction(ClientContext &, Cre
 		if (existing_params.find(lower_name) == existing_params.end()) {
 			throw InvalidInputException("Unknown parameter passed: " + lower_name);
 		}
-		result->secret_map[lower_name] = named_param.second;
+		result->secret_map[Identifier(lower_name)] = named_param.second;
 	}
 
 	result->redact_keys = {
@@ -147,7 +147,7 @@ unique_ptr<BaseSecret> TributaryClusterCreateSecretFunction(ClientContext &, Cre
 
 void TributaryClusterSetSecretParameters(CreateSecretFunction &function) {
 	for (const auto &config_key : TributaryConfigKeys()) {
-		function.named_parameters[config_key] = LogicalType::VARCHAR;
+		function.named_parameters[Identifier(config_key)] = LogicalType::VARCHAR;
 	}
 }
 

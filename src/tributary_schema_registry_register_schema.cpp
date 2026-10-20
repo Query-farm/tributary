@@ -36,7 +36,7 @@ struct TributarySchemaRegistryRegisterSchemaBindData : public TableFunctionData 
 unique_ptr<FunctionData> TributarySchemaRegistryRegisterSchemaBindFunction(ClientContext &context,
                                                                            TableFunctionBindInput &input,
                                                                            vector<LogicalType> &return_types,
-                                                                           vector<string> &names) {
+                                                                           vector<Identifier> &names) {
 
 	auto schema_registry_url = input.inputs[0].GetValue<string>();
 	auto subject = input.inputs[1].GetValue<string>();
@@ -56,7 +56,7 @@ void TributarySchemaRegistryRegisterSchemaFunction(ClientContext &context, Table
 
 	auto &bind_data = data.bind_data->CastNoConst<TributarySchemaRegistryRegisterSchemaBindData>();
 	if (bind_data.did_call) {
-		output.SetCardinality(0);
+		output.SetChildCardinality(0);
 		return;
 	}
 	bind_data.did_call = true;
@@ -77,7 +77,7 @@ void TributarySchemaRegistryRegisterSchemaFunction(ClientContext &context, Table
 	auto registered_result = client_->registerSchema(bind_data.subject, schema, bind_data.normalize);
 
 	idx_t row_idx = 0;
-	output.SetCardinality(1);
+	output.SetChildCardinality(1);
 	output.data[0].SetValue(row_idx,
 	                        registered_result.getId().has_value() ? Value(registered_result.getId().value()) : Value());
 	output.data[1].SetValue(

@@ -10,6 +10,6 @@ void TributarySchemaRegistryAddFunctions(ExtensionLoader &loader);
 void TributarySchemaRegistryPopulateAuth(schemaregistry::rest::ClientConfiguration &client_config,
                                          ClientContext &context, const string &schema_registry_url);
 
-void TributarySchemaRegistryAddRegisteredSchemaColumns(vector<string> &names, vector<LogicalType> &types);
+void TributarySchemaRegistryAddRegisteredSchemaColumns(vector<Identifier> &names, vector<LogicalType> &types);
 
 }; // namespace duckdb

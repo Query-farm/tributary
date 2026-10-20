@@ -36,7 +36,7 @@ struct TributarySchemaRegistryDeleteSubjectVersionBindData : public TableFunctio
 unique_ptr<FunctionData> TributarySchemaRegistryDeleteSubjectVersionBindFunction(ClientContext &context,
                                                                                  TableFunctionBindInput &input,
                                                                                  vector<LogicalType> &return_types,
-                                                                                 vector<string> &names) {
+                                                                                 vector<Identifier> &names) {
 
 	auto schema_registry_url = input.inputs[0].GetValue<string>();
 	auto subject = input.inputs[1].GetValue<string>();
@@ -55,7 +55,7 @@ void TributarySchemaRegistryDeleteSubjectVersionFunction(ClientContext &context,
 
 	auto &bind_data = data.bind_data->CastNoConst<TributarySchemaRegistryDeleteSubjectVersionBindData>();
 	if (bind_data.did_call) {
-		output.SetCardinality(0);
+		output.SetChildCardinality(0);
 		return;
 	}
 	bind_data.did_call = true;
@@ -72,7 +72,7 @@ void TributarySchemaRegistryDeleteSubjectVersionFunction(ClientContext &context,
 	auto deleted_version = client_->deleteSubjectVersion(bind_data.subject, bind_data.version, bind_data.permanent);
 
 	idx_t row_idx = 0;
-	output.SetCardinality(1);
+	output.SetChildCardinality(1);
 	output.data[0].SetValue(row_idx, Value::INTEGER(deleted_version));
 
 	output.Verify();

@@ -295,7 +295,7 @@ static bool starts_with(const std::string &str, const std::string &prefix) {
 }
 
 static unique_ptr<FunctionData> TributaryScanTopicBind(ClientContext &context, TableFunctionBindInput &input,
-                                                       vector<LogicalType> &return_types, vector<string> &names) {
+                                                       vector<LogicalType> &return_types, vector<Identifier> &names) {
 
 	auto topic = input.inputs[0].GetValue<string>();
 
@@ -312,7 +312,7 @@ static unique_ptr<FunctionData> TributaryScanTopicBind(ClientContext &context, T
 		const auto &kv_secret = dynamic_cast<const KeyValueSecret &>(*secret_match.secret_entry->secret);
 		// Now can we iterate over all of the values that we know we can configure.
 		for (auto &config_value : TributaryConfigKeys()) {
-			Value input_val = kv_secret.TryGetValue(config_value);
+			Value input_val = kv_secret.TryGetValue(Identifier(config_value));
 			if (!input_val.IsNull()) {
 				if (config_value == "schema.registry.url") {
 					schema_registry_url = input_val.ToString();
@@ -324,7 +324,7 @@ static unique_ptr<FunctionData> TributaryScanTopicBind(ClientContext &context, T
 	}
 
 	for (auto &kv : input.named_parameters) {
-		auto loption = StringUtil::Lower(kv.first);
+		auto loption = StringUtil::Lower(kv.first.GetIdentifierName());
 
 		if (loption == "schema.registry.url") {
 			schema_registry_url = StringValue::Get(kv.second);
@@ -408,7 +408,7 @@ static unique_ptr<FunctionData> TributaryScanTopicBind(ClientContext &context, T
 	}
 
 	for (auto &field : result_fields) {
-		names.push_back(field.first);
+		names.emplace_back(field.first);
 		return_types.push_back(field.second);
 	}
 
@@ -501,16 +501,16 @@ static void TributaryScanTopic(ClientContext &context, TableFunctionInput &data,
 	auto &global_state = data.global_state->Cast<TributaryScanTopicGlobalState>();
 	auto &bind_data = data.bind_data->CastNoConst<TributaryScanTopicBindData>();
 
-	auto &key_validity = FlatVector::Validity(output.data[3]);
-	auto &message_validity = FlatVector::Validity(output.data[4]);
+	auto &key_validity = FlatVector::ValidityMutable(output.data[3]);
+	auto &message_validity = FlatVector::ValidityMutable(output.data[4]);
 	auto &topic_column = output.data[0];
 	auto &key_column = output.data[3];
 	auto &message_column = output.data[4];
-	auto topic_vector = FlatVector::GetData<string_t>(topic_column);
-	auto partition_id_vector = FlatVector::GetData<int32_t>(output.data[1]);
-	auto offset_vector = FlatVector::GetData<int64_t>(output.data[2]);
-	auto key_vector = FlatVector::GetData<string_t>(key_column);
-	auto message_vector = FlatVector::GetData<string_t>(message_column);
+	auto topic_vector = FlatVector::GetDataMutable<string_t>(topic_column);
+	auto partition_id_vector = FlatVector::GetDataMutable<int32_t>(output.data[1]);
+	auto offset_vector = FlatVector::GetDataMutable<int64_t>(output.data[2]);
+	auto key_vector = FlatVector::GetDataMutable<string_t>(key_column);
+	auto message_vector = FlatVector::GetDataMutable<string_t>(message_column);
 
 	// If we don't have a partition task to process, attempt to get one from the global state.
 	// take care to properly lock the global state.
@@ -602,7 +602,7 @@ static void TributaryScanTopic(ClientContext &context, TableFunctionInput &data,
 		}
 	}
 
-	output.SetCardinality(message_idx);
+	output.SetChildCardinality(message_idx);
 }
 
 // Lets work on initializing the local state
@@ -682,9 +682,15 @@ void TributaryScanTopicAddFunction(ExtensionLoader &loader) {
 	    TableFunction("tributary_scan_topic", {LogicalType::VARCHAR}, TributaryScanTopic, TributaryScanTopicBind,
 	                  TributaryScanTopicGlobalInit, TributaryScanTopicLocalInit);
 
-	for (auto &key : TributaryConfigKeys()) {
-		no_cluster_name.named_parameters[key] = LogicalType(LogicalTypeId::VARCHAR);
-	}
+	no_cluster_name.GetSignature().WithTypedKwargs("options", [](TypedKwargs &options) {
+		// TributaryConfigKeys() contains repeated keys; TypedKwargs rejects duplicates.
+		case_insensitive_set_t seen;
+		for (auto &key : TributaryConfigKeys()) {
+			if (seen.insert(key).second) {
+				options.Add(Identifier(key), LogicalType(LogicalTypeId::VARCHAR));
+			}
+		}
+	});
 
 	//			cluster_name.named_parameters[key] = LogicalType(LogicalTypeId::VARCHAR);
 

@@ -12,6 +12,7 @@
 #include "schemaregistry/serdes/json/JsonSerializer.h"
 
 #include "duckdb/common/vector_operations/generic_executor.hpp"
+#include "duckdb/common/vector/string_vector.hpp"
 #include "tributary_schema_registry.hpp"
 #include "tributary_secrets.hpp"
 namespace duckdb {
@@ -46,7 +47,7 @@ void TributarySchemaRegistrySerializeFunction(DataChunk &args, ExpressionState &
 
 	GenericExecutor::ExecuteQuaternary<PrimitiveType<string_t>, PrimitiveType<string_t>, PrimitiveType<string_t>,
 	                                   PrimitiveType<string_t>, PrimitiveType<string_t>>(
-	    schema_registry_url_vector, schema_vector, topic_vector, data_vector, result, args.size(),
+	    schema_registry_url_vector, schema_vector, topic_vector, data_vector, result,
 	    [&](PrimitiveType<string_t> schema_registry_url, PrimitiveType<string_t> schema_definition,
 	        PrimitiveType<string_t> topic_name, PrimitiveType<string_t> data) {
 		    // Create Schema Registry client configuration
@@ -91,13 +92,13 @@ void TributarySchemaRegistrySerializeFunction(DataChunk &args, ExpressionState &
 
 } // namespace
 
-void TributarySchemaRegistryAddRegisteredSchemaColumns(vector<string> &names, vector<LogicalType> &return_types) {
+void TributarySchemaRegistryAddRegisteredSchemaColumns(vector<Identifier> &names, vector<LogicalType> &return_types) {
 	const vector<pair<string, LogicalType>> columns = {
 	    {"id", LogicalType::INTEGER},      {"guid", LogicalType::VARCHAR},        {"subject", LogicalType::VARCHAR},
 	    {"version", LogicalType::INTEGER}, {"schema_type", LogicalType::VARCHAR}, {"schema", LogicalType::VARCHAR}};
 
 	for (const auto &column : columns) {
-		names.push_back(column.first);
+		names.emplace_back(column.first);
 		return_types.push_back(column.second);
 	}
 }
@@ -113,10 +114,12 @@ void TributarySchemaRegistryAddDeleteSubjectFunction(ExtensionLoader &loader);
 void TributarySchemaRegistryAddDeleteSubjectVersionFunction(ExtensionLoader &loader);
 
 void TributarySchemaRegistryAddFunctions(ExtensionLoader &loader) {
-	loader.RegisterFunction(
+	auto serialize_json_function =
 	    ScalarFunction("tributary_schema_registry_serialize_json",
 	                   {LogicalType::VARCHAR, LogicalType::JSON(), LogicalType::VARCHAR, LogicalType::JSON()},
-	                   LogicalType::BLOB, TributarySchemaRegistrySerializeFunction));
+	                   LogicalType::BLOB, TributarySchemaRegistrySerializeFunction);
+	serialize_json_function.SetFallible();
+	loader.RegisterFunction(serialize_json_function);
 
 	TributarySchemaRegistryAddRegisterSchemaFunction(loader);
 	TributarySchemaRegistryAddGetSchemaBySubjectAndIdFunction(loader);

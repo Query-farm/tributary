@@ -31,7 +31,7 @@ struct TributarySchemaRegistryGetSchemaByGuidBindData : public TableFunctionData
 unique_ptr<FunctionData> TributarySchemaRegistryGetSchemaByGuidBindFunction(ClientContext &context,
                                                                             TableFunctionBindInput &input,
                                                                             vector<LogicalType> &return_types,
-                                                                            vector<string> &names) {
+                                                                            vector<Identifier> &names) {
 
 	auto schema_registry_url = input.inputs[0].GetValue<string>();
 	auto guid = input.inputs[1].GetValue<string>();
@@ -50,7 +50,7 @@ void TributarySchemaRegistryGetSchemaByGuidFunction(ClientContext &context, Tabl
 
 	auto &bind_data = data.bind_data->CastNoConst<TributarySchemaRegistryGetSchemaByGuidBindData>();
 	if (bind_data.did_call) {
-		output.SetCardinality(0);
+		output.SetChildCardinality(0);
 		return;
 	}
 	bind_data.did_call = true;
@@ -67,7 +67,7 @@ void TributarySchemaRegistryGetSchemaByGuidFunction(ClientContext &context, Tabl
 	auto schema_result = client_->getByGuid(bind_data.guid);
 
 	idx_t row_idx = 0;
-	output.SetCardinality(1);
+	output.SetChildCardinality(1);
 	output.data[0].SetValue(
 	    row_idx, schema_result.getSchemaType().has_value() ? Value(schema_result.getSchemaType().value()) : Value());
 	output.data[1].SetValue(row_idx,

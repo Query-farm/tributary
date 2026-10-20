@@ -35,7 +35,7 @@ struct TributarySchemaRegistryDeleteSubjectBindData : public TableFunctionData {
 unique_ptr<FunctionData> TributarySchemaRegistryDeleteSubjectBindFunction(ClientContext &context,
                                                                           TableFunctionBindInput &input,
                                                                           vector<LogicalType> &return_types,
-                                                                          vector<string> &names) {
+                                                                          vector<Identifier> &names) {
 
 	auto schema_registry_url = input.inputs[0].GetValue<string>();
 	auto subject = input.inputs[1].GetValue<string>();
@@ -71,11 +71,11 @@ void TributarySchemaRegistryDeleteSubjectFunction(ClientContext &context, TableF
 	idx_t chunk_size = std::min(remaining_versions, (idx_t)STANDARD_VECTOR_SIZE);
 
 	if (chunk_size == 0) {
-		output.SetCardinality(0);
+		output.SetChildCardinality(0);
 		return;
 	}
 
-	output.SetCardinality(chunk_size);
+	output.SetChildCardinality(chunk_size);
 	for (idx_t i = 0; i < chunk_size; i++) {
 		output.data[0].SetValue(i, Value::INTEGER(bind_data.deleted_versions[bind_data.current_idx + i]));
 	}

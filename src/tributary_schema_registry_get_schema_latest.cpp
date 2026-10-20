@@ -31,7 +31,7 @@ struct TributarySchemaRegistryGetSchemaLatestBindData : public TableFunctionData
 unique_ptr<FunctionData> TributarySchemaRegistryGetSchemaLatestBindFunction(ClientContext &context,
                                                                             TableFunctionBindInput &input,
                                                                             vector<LogicalType> &return_types,
-                                                                            vector<string> &names) {
+                                                                            vector<Identifier> &names) {
 
 	auto schema_registry_url = input.inputs[0].GetValue<string>();
 	auto subject = input.inputs[1].GetValue<string>();
@@ -47,7 +47,7 @@ void TributarySchemaRegistryGetSchemaLatestFunction(ClientContext &context, Tabl
 
 	auto &bind_data = data.bind_data->CastNoConst<TributarySchemaRegistryGetSchemaLatestBindData>();
 	if (bind_data.did_call) {
-		output.SetCardinality(0);
+		output.SetChildCardinality(0);
 		return;
 	}
 	bind_data.did_call = true;
@@ -64,7 +64,7 @@ void TributarySchemaRegistryGetSchemaLatestFunction(ClientContext &context, Tabl
 	auto registered_result = client_->getLatestVersion(bind_data.subject);
 
 	idx_t row_idx = 0;
-	output.SetCardinality(1);
+	output.SetChildCardinality(1);
 	output.data[0].SetValue(row_idx,
 	                        registered_result.getId().has_value() ? Value(registered_result.getId().value()) : Value());
 	output.data[1].SetValue(
@@ -223,8 +223,8 @@ void TributarySchemaRegisteryGetLatestSchemaJsonStructureFunction(DataChunk &arg
 	auto &subject_vector = args.data[1];
 
 	BinaryExecutor::Execute<string_t, string_t, string_t>(
-	    schema_registry_url_vector, subject_vector, result, args.size(),
-	    [&](string_t &schema_registry_url_str, string_t &subject_str) -> string_t {
+	    schema_registry_url_vector, subject_vector, result,
+	    [&](string_t schema_registry_url_str, string_t subject_str) -> string_t {
 		    // Convert string_t to std::string
 		    std::string schema_registry_url(schema_registry_url_str.GetData(), schema_registry_url_str.GetSize());
 		    std::string subject(subject_str.GetData(), subject_str.GetSize());
@@ -262,10 +262,12 @@ void TributarySchemaRegistryAddGetSchemaLatestFunction(ExtensionLoader &loader) 
 	    "tributary_schema_registry_get_schema_latest", {LogicalType::VARCHAR, LogicalType::VARCHAR},
 	    TributarySchemaRegistryGetSchemaLatestFunction, TributarySchemaRegistryGetSchemaLatestBindFunction));
 
-	loader.RegisterFunction(ScalarFunction(
+	auto json_structure_function = ScalarFunction(
 	    "tributary_schema_registry_get_schema_latest_json_structure", {LogicalType::VARCHAR, LogicalType::VARCHAR},
 	    LogicalType::VARCHAR, TributarySchemaRegisteryGetLatestSchemaJsonStructureFunction, nullptr, nullptr, nullptr,
-	    nullptr, LogicalType::INVALID, FunctionStability::CONSISTENT_WITHIN_QUERY));
+	    LogicalType::INVALID, FunctionStability::CONSISTENT_WITHIN_QUERY);
+	json_structure_function.SetFallible();
+	loader.RegisterFunction(json_structure_function);
 }
 
 } // namespace duckdb

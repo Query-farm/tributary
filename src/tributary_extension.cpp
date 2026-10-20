@@ -3,8 +3,15 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/function/scalar_function.hpp"
+#include "duckdb/common/vector_operations/unary_executor.hpp"
+#include "duckdb/common/vector/flat_vector.hpp"
+#include "duckdb/common/vector/list_vector.hpp"
+#include "duckdb/common/vector/string_vector.hpp"
+#include "duckdb/common/vector/struct_vector.hpp"
 #include <duckdb/parser/parsed_data/create_scalar_function_info.hpp>
 #include <librdkafka/rdkafkacpp.h>
+
+#include "duckdb/logging/log_manager.hpp"
 
 #include "tributary_scan_topic.hpp"
 #include "tributary_config.hpp"
@@ -18,7 +25,7 @@ namespace duckdb {
 
 inline void TributaryScalarFun(DataChunk &args, ExpressionState &state, Vector &result) {
 	auto &name_vector = args.data[0];
-	UnaryExecutor::Execute<string_t, string_t>(name_vector, result, args.size(), [&](string_t name) {
+	UnaryExecutor::Execute<string_t, string_t>(name_vector, result, [&](string_t name) {
 		return StringVector::AddString(result, "Tributary " + name.GetString() + " 🐥");
 	});
 }
@@ -48,12 +55,12 @@ struct TributaryMetadataBindData : public TableFunctionData {
 };
 
 static unique_ptr<FunctionData> TributaryMetadataBind(ClientContext &context, TableFunctionBindInput &input,
-                                                      vector<LogicalType> &return_types, vector<string> &names) {
+                                                      vector<LogicalType> &return_types, vector<Identifier> &names) {
 
 	std::unordered_map<string, string> config_values;
 
 	for (auto &kv : input.named_parameters) {
-		auto loption = StringUtil::Lower(kv.first);
+		auto loption = StringUtil::Lower(kv.first.GetIdentifierName());
 		config_values[loption] = StringValue::Get(kv.second);
 	}
 
@@ -88,12 +95,12 @@ static void TributaryMetadata(ClientContext &context, TableFunctionInput &data, 
 	std::string errstr;
 
 	if (bind_data.sent_row) {
-		output.SetCardinality(0);
+		output.SetChildCardinality(0);
 		return;
 	}
 	bind_data.sent_row = true;
 
-	output.SetCardinality(1);
+	output.SetChildCardinality(1);
 
 	std::unique_ptr<RdKafka::Producer> producer(RdKafka::Producer::create(bind_data.config.get(), errstr));
 	if (!producer) {
@@ -122,21 +129,21 @@ static void TributaryMetadata(ClientContext &context, TableFunctionInput &data, 
 	}
 
 	{
-		auto brokers_data = ListVector::GetData(brokers_dest);
+		auto brokers_data = FlatVector::GetDataMutable<list_entry_t>(brokers_dest);
 		auto brokers_list_current_size = ListVector::GetListSize(brokers_dest);
 
 		{
-			auto &brokers_entries = StructVector::GetEntries(ListVector::GetEntry(brokers_dest));
-			auto brokers_id_data = FlatVector::GetData<int32_t>(*brokers_entries[0]);
-			auto brokers_host_data = FlatVector::GetData<string_t>(*brokers_entries[1]);
-			auto brokers_port_data = FlatVector::GetData<int32_t>(*brokers_entries[2]);
+			auto &brokers_entries = StructVector::GetEntries(ListVector::GetChildMutable(brokers_dest));
+			auto brokers_id_data = FlatVector::GetDataMutable<int32_t>(brokers_entries[0]);
+			auto brokers_host_data = FlatVector::GetDataMutable<string_t>(brokers_entries[1]);
+			auto brokers_port_data = FlatVector::GetDataMutable<int32_t>(brokers_entries[2]);
 
 			for (size_t idx = 0; idx < brokers->size(); idx++) {
 				auto broker = brokers->at(idx);
 
 				brokers_id_data[brokers_list_current_size + idx] = broker->id();
 				brokers_host_data[brokers_list_current_size + idx] =
-				    StringVector::AddString(*brokers_entries[1], broker->host());
+				    StringVector::AddString(brokers_entries[1], broker->host());
 				brokers_port_data[brokers_list_current_size + idx] = broker->port();
 			}
 		}
@@ -149,75 +156,77 @@ static void TributaryMetadata(ClientContext &context, TableFunctionInput &data, 
 	{
 		auto &topics_dest = output.data[1];
 
-		auto topics_data = ListVector::GetData(topics_dest);
-
 		const RdKafka::Metadata::TopicMetadataVector *topics = metadata->topics();
 
+		// Size the topics list (and the nested partitions list) before taking any data pointers: growing a list
+		// vector can reallocate its child, which would leave earlier pointers dangling.
+		const auto topics_list_current_size = ListVector::GetListSize(topics_dest);
+		const auto topics_list_new_size = topics_list_current_size + topics->size();
+		ListVector::Reserve(topics_dest, topics_list_new_size);
+		ListVector::SetListSize(topics_dest, topics_list_new_size);
+
+		auto topics_data = FlatVector::GetDataMutable<list_entry_t>(topics_dest);
+		topics_data[0].length = topics->size();
+		topics_data[0].offset = topics_list_current_size;
+
 		{
-			auto &topics_entries = StructVector::GetEntries(ListVector::GetEntry(topics_dest));
+			auto &topics_entries = StructVector::GetEntries(ListVector::GetChildMutable(topics_dest));
 			auto &topic_name_column = topics_entries[0];
 			auto &topic_error_column = topics_entries[1];
 			auto &topic_partitions_column = topics_entries[2];
 
-			auto topic_name_data = FlatVector::GetData<string_t>(*topic_name_column);
-			auto topic_error_data = FlatVector::GetData<string_t>(*topic_error_column);
+			idx_t total_partitions = 0;
+			for (size_t topic_idx = 0; topic_idx < topics->size(); topic_idx++) {
+				auto topic = topics->at(topic_idx);
+				if (topic->err() == RdKafka::ERR_NO_ERROR) {
+					total_partitions += topic->partitions()->size();
+				}
+			}
+			const auto partitions_list_start = ListVector::GetListSize(topic_partitions_column);
+			ListVector::Reserve(topic_partitions_column, partitions_list_start + total_partitions);
+			ListVector::SetListSize(topic_partitions_column, partitions_list_start + total_partitions);
 
-			auto &topic_error_validity = FlatVector::Validity(*topic_error_column);
+			auto topic_name_data = FlatVector::GetDataMutable<string_t>(topic_name_column);
+			auto topic_error_data = FlatVector::GetDataMutable<string_t>(topic_error_column);
 
-			auto topic_partitions_data = ListVector::GetData(*topic_partitions_column);
-			auto &topic_partitions_dest = ListVector::GetEntry(*topic_partitions_column);
+			auto &topic_error_validity = FlatVector::ValidityMutable(topic_error_column);
+
+			auto topic_partitions_data = FlatVector::GetDataMutable<list_entry_t>(topic_partitions_column);
+			auto &topic_partitions_dest = ListVector::GetChildMutable(topic_partitions_column);
 
 			auto &topic_partition_entries = StructVector::GetEntries(topic_partitions_dest);
 			auto &topic_partitions_id_column = topic_partition_entries[0];
 			auto &topic_partitions_leader_column = topic_partition_entries[1];
-			// auto &topic_partition_replicas_column = topic_partition_entries[2];
 
-			auto topic_partition_name_data = FlatVector::GetData<int32_t>(*topic_partitions_id_column);
-			auto topic_partition_leader_data = FlatVector::GetData<int32_t>(*topic_partitions_leader_column);
+			auto topic_partition_name_data = FlatVector::GetDataMutable<int32_t>(topic_partitions_id_column);
+			auto topic_partition_leader_data = FlatVector::GetDataMutable<int32_t>(topic_partitions_leader_column);
 
-			// topic_partitions_data[0].length = 0;
-			// topic_partitions_data[0].offset = 0;
-
-			// 	// Now there is a list vector of partitions inside of each topic.
-
-			// 	auto partitions_id_data = FlatVector::GetData<int32_t>(*partitions_id_column);
-			// 	auto partitions_leader_data = FlatVector::GetData<int32_t>(*partitions_leader_column);
-			const auto topics_list_current_size = ListVector::GetListSize(topics_dest);
-			const auto topics_list_new_size = topics_list_current_size + topics->size();
-			topics_data[0].length = topics_list_new_size;
-			topics_data[0].offset = topics_list_current_size;
-			ListVector::SetListSize(topics_dest, topics_list_new_size);
-
+			auto partitions_offset = partitions_list_start;
 			for (size_t topic_idx = 0; topic_idx < topics->size(); topic_idx++) {
-
 				auto topic = topics->at(topic_idx);
+				const auto row = topics_list_current_size + topic_idx;
 
-				topic_name_data[topics_list_current_size + topic_idx] =
-				    StringVector::AddString(*topic_name_column, topic->topic());
+				topic_name_data[row] = StringVector::AddString(topic_name_column, topic->topic());
 
 				if (topic->err() != RdKafka::ERR_NO_ERROR) {
-					topic_error_data[topics_list_current_size + topic_idx] =
-					    StringVector::AddString(*topic_error_column, RdKafka::err2str(topic->err()));
-					// 			partitions_data[0].length = 0;
-					// 			partitions_data[0].offset = 0;
+					topic_error_data[row] = StringVector::AddString(topic_error_column, RdKafka::err2str(topic->err()));
+					topic_partitions_data[row].length = 0;
+					topic_partitions_data[row].offset = partitions_offset;
 					continue;
 				}
-				topic_error_validity.SetInvalid(topic_idx);
+				topic_error_validity.SetInvalid(row);
 
 				const RdKafka::TopicMetadata::PartitionMetadataVector *partitions = topic->partitions();
 
-				const auto partitions_list_current_size = ListVector::GetListSize(*topic_partitions_column);
-				const auto partitions_list_new_size = partitions_list_current_size + partitions->size();
-
-				topic_partitions_data[topic_idx].length = partitions->size();
-				topic_partitions_data[topic_idx].offset = partitions_list_current_size;
-				ListVector::SetListSize(*topic_partitions_column, partitions_list_new_size);
+				topic_partitions_data[row].length = partitions->size();
+				topic_partitions_data[row].offset = partitions_offset;
 
 				for (size_t partition_idx = 0; partition_idx < partitions->size(); partition_idx++) {
 					auto partition = partitions->at(partition_idx);
-					topic_partition_name_data[partitions_list_current_size + partition_idx] = partition->id();
-					topic_partition_leader_data[partitions_list_current_size + partition_idx] = partition->leader();
+					topic_partition_name_data[partitions_offset + partition_idx] = partition->id();
+					topic_partition_leader_data[partitions_offset + partition_idx] = partition->leader();
 				}
+				partitions_offset += partitions->size();
 			}
 		}
 	}
@@ -235,9 +244,15 @@ static void LoadInternal(ExtensionLoader &loader) {
 	loader.RegisterFunction(tributary_scalar_function);
 
 	auto metadata_function = TableFunction("tributary_metadata", {}, TributaryMetadata, TributaryMetadataBind);
-	for (auto &key : TributaryConfigKeys()) {
-		metadata_function.named_parameters[key] = LogicalType(LogicalTypeId::VARCHAR);
-	}
+	metadata_function.GetSignature().WithTypedKwargs("options", [](TypedKwargs &options) {
+		// TributaryConfigKeys() contains repeated keys; TypedKwargs rejects duplicates.
+		case_insensitive_set_t seen;
+		for (auto &key : TributaryConfigKeys()) {
+			if (seen.insert(key).second) {
+				options.Add(Identifier(key), LogicalType(LogicalTypeId::VARCHAR));
+			}
+		}
+	});
 
 	loader.RegisterFunction(metadata_function);
 
