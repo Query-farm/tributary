@@ -266,7 +266,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto &log_manager = loader.GetDatabaseInstance().GetLogManager();
 	log_manager.RegisterLogType(make_uniq<TributaryLogType>());
 
-	//	QueryFarmSendTelemetry(loader, "tributary", "2026072501");
+	//	QueryFarmSendTelemetry(loader, "tributary", "2026102001");
 }
 
 void TributaryExtension::Load(ExtensionLoader &loader) {
@@ -277,7 +277,7 @@ std::string TributaryExtension::Name() {
 }
 
 std::string TributaryExtension::Version() const {
-	return "2026072501";
+	return "2026102001";
 }
 
 } // namespace duckdb
