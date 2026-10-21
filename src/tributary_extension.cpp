@@ -1,283 +1,165 @@
+#define DUCKDB_EXTENSION_MAIN
+
 #include "tributary_extension.hpp"
-#include "duckdb.hpp"
+#include "duckdb/common/error_data.hpp"
 #include "duckdb/common/exception.hpp"
-#include "duckdb/common/string_util.hpp"
-#include "duckdb/function/scalar_function.hpp"
-#include "duckdb/common/vector_operations/unary_executor.hpp"
-#include "duckdb/common/vector/flat_vector.hpp"
-#include "duckdb/common/vector/list_vector.hpp"
-#include "duckdb/common/vector/string_vector.hpp"
-#include "duckdb/common/vector/struct_vector.hpp"
-#include <duckdb/parser/parsed_data/create_scalar_function_info.hpp>
-#include <librdkafka/rdkafkacpp.h>
+#include "duckdb/common/file_system.hpp"
+#include "duckdb/main/extension_helper.hpp"
+#include "duckdb/main/extension_load_options.hpp"
+#include "duckdb/main/extension_repository_manager.hpp"
 
-#include "duckdb/logging/log_manager.hpp"
-
-#include "tributary_scan_topic.hpp"
-#include "tributary_config.hpp"
-#include "tributary_exception.hpp"
-#include "tributary_logging.hpp"
-#include "tributary_secrets.hpp"
-#include "tributary_schema_registry.hpp"
-#include "query_farm_telemetry.hpp"
+// For DuckDB 2.0 and later this extension is distributed from the Query.Farm extension repository. The build published to the
+// DuckDB community repository only keeps the name. When the user has already added the Query.Farm repository and
+// installed the extension from it, loading this build loads that one; otherwise it explains the remaining steps.
+// It never adds the repository or installs anything itself: trusting a repository is the user's decision.
 
 namespace duckdb {
 
-inline void TributaryScalarFun(DataChunk &args, ExpressionState &state, Vector &result) {
-	auto &name_vector = args.data[0];
-	UnaryExecutor::Execute<string_t, string_t>(name_vector, result, [&](string_t name) {
-		return StringVector::AddString(result, "Tributary " + name.GetString() + " 🐥");
-	});
+static constexpr const char *EXTENSION_NAME = "tributary";
+static constexpr const char *EXTENSION_VERSION = "2026102001";
+static constexpr const char *REPOSITORY_NAME = "query_farm";
+static constexpr const char *REPOSITORY_URL = "https://duckdb-extensions.query.farm";
+static constexpr const char *REPOSITORY_HTTP_URL = "http://duckdb-extensions.query.farm";
+// sha256 fingerprints of the Query.Farm repository signing keys (primary and standby)
+static constexpr const char *REPOSITORY_KEY_FINGERPRINTS[] = {
+    "sha256:b293ba6145db8f51f301618f59a720cb8c0c21e7efc6119aab43ea5c708947b5",
+    "sha256:6959de1c16b783b14d4c904f69361811f737017d79ea7078729a74ec2f7f7753"};
+
+static string MovedPreamble() {
+	return StringUtil::Format("The %s extension for DuckDB 2.0 and later is distributed from the Query.Farm extension repository, "
+	                          "not the DuckDB community repository.\n\n",
+	                          EXTENSION_NAME);
 }
 
-struct TributaryMetadataBindData : public TableFunctionData {
-	std::unordered_map<string, string> config_values_;
+static string MoreInformation() {
+	return StringUtil::Format("\n\nMore information: https://query.farm/products/extensions/%s/", EXTENSION_NAME);
+}
 
-	std::unique_ptr<RdKafka::Conf> config;
+static bool IsInstalledFromRepository(DatabaseInstance &db, FileSystem &fs) {
+	for (auto &directory : ExtensionHelper::GetExtensionDirectoryPath(db, fs)) {
+		auto path = fs.JoinPath(fs.JoinPath(fs.JoinPath(directory, "repositories"), REPOSITORY_NAME),
+		                        string(EXTENSION_NAME) + ".duckdb_extension");
+		if (fs.FileExists(path)) {
+			return true;
+		}
+	}
+	return false;
+}
 
-	bool sent_row = false;
-
-	explicit TributaryMetadataBindData(std::unordered_map<string, string> config_values)
-	    : config_values_(std::move(config_values)) {
-
-		config.reset(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
-
-		for (auto &kv : config_values_) {
-			auto &key = kv.first;
-			auto &value = kv.second;
-
-			std::string errstr;
-			if (config->set(key, value, errstr) != RdKafka::Conf::CONF_OK) {
-				throw TributaryException(ExceptionType::INVALID_CONFIGURATION, errstr);
+// A repository named query_farm is only used when it points at the Query.Farm prefix and pins a Query.Farm signing key.
+static bool IsQueryFarmRepository(const ExtensionRepository &repository) {
+	auto prefix = StringUtil::Lower(repository.path);
+	while (StringUtil::EndsWith(prefix, "/")) {
+		prefix.pop_back();
+	}
+	if (prefix != REPOSITORY_URL && prefix != REPOSITORY_HTTP_URL) {
+		return false;
+	}
+	for (auto &key : repository.public_keys) {
+		auto fingerprint = ExtensionRepositoryManager::GetPublicKeyFingerprint(key);
+		for (auto trusted : REPOSITORY_KEY_FINGERPRINTS) {
+			if (fingerprint == trusted) {
+				return true;
 			}
 		}
 	}
-};
-
-static unique_ptr<FunctionData> TributaryMetadataBind(ClientContext &context, TableFunctionBindInput &input,
-                                                      vector<LogicalType> &return_types, vector<Identifier> &names) {
-
-	std::unordered_map<string, string> config_values;
-
-	for (auto &kv : input.named_parameters) {
-		auto loption = StringUtil::Lower(kv.first.GetIdentifierName());
-		config_values[loption] = StringValue::Get(kv.second);
-	}
-
-	auto broker_info_type = LogicalType::STRUCT(
-	    {{"id", LogicalTypeId::INTEGER}, {"host", LogicalTypeId::VARCHAR}, {"port", LogicalTypeId::INTEGER}});
-
-	auto brokers_type = LogicalType::LIST(broker_info_type);
-
-	auto partition_info_type = LogicalType::STRUCT({
-	    {"id", LogicalTypeId::INTEGER},
-	    {"leader", LogicalTypeId::INTEGER},
-	    //{"replicas", LogicalType::LIST(LogicalType::INTEGER)},
-	    //	    {"isrs", LogicalType::LIST(LogicalType::INTEGER)},
-	});
-
-	auto topics = LogicalType::LIST(LogicalType::STRUCT({{"name", LogicalTypeId::VARCHAR},
-	                                                     {"error", LogicalTypeId::VARCHAR},
-	                                                     {"partitions", LogicalType::LIST(partition_info_type)}
-
-	}));
-
-	names.push_back("brokers");
-	names.push_back("topics");
-	return_types.push_back(brokers_type);
-	return_types.push_back(topics);
-
-	return make_uniq<TributaryMetadataBindData>(std::move(config_values));
+	return false;
 }
 
-static void TributaryMetadata(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
-	auto &bind_data = data.bind_data->CastNoConst<TributaryMetadataBindData>();
-	std::string errstr;
+static void LoadFromQueryFarmOrExplain(DatabaseInstance &db) {
+	auto &fs = FileSystem::GetFileSystem(db);
+	ExtensionRepository repository;
+	bool has_repository = ExtensionRepositoryManager::TryGetRepository(db, fs, REPOSITORY_NAME, repository);
 
-	if (bind_data.sent_row) {
-		output.SetChildCardinality(0);
-		return;
+	if (!has_repository) {
+		throw MissingExtensionException(
+		    "%sAdd the repository and install the extension once:\n"
+		    "\n"
+		    "    SET allow_extension_repositories = 'allowed';\n"
+		    "    CREATE EXTENSION REPOSITORY IF NOT EXISTS %s WITH PREFIX '%s';\n"
+		    "    INSTALL %s FROM %s;\n"
+		    "\n"
+		    "Then load it in each session with:\n"
+		    "\n"
+		    "    LOAD %s FROM %s;%s",
+		    MovedPreamble(), REPOSITORY_NAME, REPOSITORY_URL, EXTENSION_NAME, REPOSITORY_NAME, EXTENSION_NAME,
+		    REPOSITORY_NAME, MoreInformation());
 	}
-	bind_data.sent_row = true;
-
-	output.SetChildCardinality(1);
-
-	std::unique_ptr<RdKafka::Producer> producer(RdKafka::Producer::create(bind_data.config.get(), errstr));
-	if (!producer) {
-		throw TributaryException(ExceptionType::INVALID_CONFIGURATION, "Failed to create Kafka producer", errstr);
+	if (!IsQueryFarmRepository(repository)) {
+		throw MissingExtensionException(
+		    "%sA repository named %s is configured with the prefix '%s', but it is not the Query.Farm extension "
+		    "repository: it points somewhere else or does not use the Query.Farm signing keys, so the extension is not "
+		    "loaded from it. Replace it with the Query.Farm repository and reinstall the extension:\n"
+		    "\n"
+		    "    SET allow_extension_repositories = 'allowed';\n"
+		    "    CREATE OR REPLACE EXTENSION REPOSITORY %s WITH PREFIX '%s';\n"
+		    "    FORCE INSTALL %s FROM %s;\n"
+		    "\n"
+		    "Then load it in each session with:\n"
+		    "\n"
+		    "    LOAD %s FROM %s;%s",
+		    MovedPreamble(), REPOSITORY_NAME, repository.path, REPOSITORY_NAME, REPOSITORY_URL, EXTENSION_NAME,
+		    REPOSITORY_NAME, EXTENSION_NAME, REPOSITORY_NAME, MoreInformation());
+	}
+	if (ExtensionRepositoryManager::GetAccess(db) == ExtensionRepositoryAccess::FORBIDDEN) {
+		throw MissingExtensionException("%sThe %s repository is configured, but allow_extension_repositories is set to "
+		                                "'forbidden', so extensions from it cannot be loaded.%s",
+		                                MovedPreamble(), REPOSITORY_NAME, MoreInformation());
+	}
+	if (!IsInstalledFromRepository(db, fs)) {
+		throw MissingExtensionException("%sThe %s repository is already configured. Install the extension from it once:\n"
+		                                "\n"
+		                                "    SET allow_extension_repositories = 'allowed';\n"
+		                                "    INSTALL %s FROM %s;\n"
+		                                "\n"
+		                                "Then load it in each session with:\n"
+		                                "\n"
+		                                "    LOAD %s FROM %s;%s",
+		                                MovedPreamble(), REPOSITORY_NAME, EXTENSION_NAME, REPOSITORY_NAME,
+		                                EXTENSION_NAME, REPOSITORY_NAME, MoreInformation());
 	}
 
-	RdKafka::Metadata *metadata_ptr = nullptr;
-	RdKafka::ErrorCode err;
-
-	// Get metadata for all topics
-	err = producer->metadata(true, nullptr, &metadata_ptr, 5000);
-	if (err != RdKafka::ERR_NO_ERROR) {
-		throw TributaryException(ExceptionType::INVALID_CONFIGURATION, "Failed to get metadata", err);
-	}
-
-	// Use smart pointer for automatic cleanup
-	std::unique_ptr<RdKafka::Metadata> metadata(metadata_ptr);
-	// Display broker information
-	const RdKafka::Metadata::BrokerMetadataVector *brokers = metadata->brokers();
-
-	auto &brokers_dest = output.data[0];
-
-	// First resize the list.
-	if (ListVector::GetListCapacity(brokers_dest) < brokers->size()) {
-		ListVector::Reserve(brokers_dest, brokers->size());
-	}
-
-	{
-		auto brokers_data = FlatVector::GetDataMutable<list_entry_t>(brokers_dest);
-		auto brokers_list_current_size = ListVector::GetListSize(brokers_dest);
-
-		{
-			auto &brokers_entries = StructVector::GetEntries(ListVector::GetChildMutable(brokers_dest));
-			auto brokers_id_data = FlatVector::GetDataMutable<int32_t>(brokers_entries[0]);
-			auto brokers_host_data = FlatVector::GetDataMutable<string_t>(brokers_entries[1]);
-			auto brokers_port_data = FlatVector::GetDataMutable<int32_t>(brokers_entries[2]);
-
-			for (size_t idx = 0; idx < brokers->size(); idx++) {
-				auto broker = brokers->at(idx);
-
-				brokers_id_data[brokers_list_current_size + idx] = broker->id();
-				brokers_host_data[brokers_list_current_size + idx] =
-				    StringVector::AddString(brokers_entries[1], broker->host());
-				brokers_port_data[brokers_list_current_size + idx] = broker->port();
-			}
+	// The repository is trusted and the extension is installed from it: load that build. DuckDB holds the load lock
+	// for this name while this stub initializes, so the real extension is loaded under an alias; its functions are
+	// registered as usual.
+	ExtensionLoadOptions options(EXTENSION_NAME);
+	options.repository = REPOSITORY_NAME;
+	options.alias = Identifier(string(EXTENSION_NAME) + "_" + REPOSITORY_NAME);
+	try {
+		ExtensionHelper::LoadExternalExtension(db, fs, options);
+	} catch (std::exception &ex) {
+		ErrorData error(ex);
+		if (error.Type() != ExceptionType::IO || !StringUtil::Contains(error.RawMessage(), "signature")) {
+			throw;
 		}
-
-		brokers_data[0].length = brokers->size();
-		brokers_data[0].offset = brokers_list_current_size;
-		ListVector::SetListSize(brokers_dest, brokers_list_current_size + brokers->size());
+		throw MissingExtensionException(
+		    "%sThe %s extension installed from the %s repository failed signature verification. The file may be "
+		    "damaged, or it was signed with a key that this repository definition does not trust. Reinstall it:\n"
+		    "\n"
+		    "    SET allow_extension_repositories = 'allowed';\n"
+		    "    FORCE INSTALL %s FROM %s;\n"
+		    "\n"
+		    "If loading still fails the same way, refresh the repository's signing keys and reinstall:\n"
+		    "\n"
+		    "    CREATE OR REPLACE EXTENSION REPOSITORY %s WITH PREFIX '%s';\n"
+		    "    FORCE INSTALL %s FROM %s;\n"
+		    "\n"
+		    "Do not use -unsigned to work around this.%s",
+		    MovedPreamble(), EXTENSION_NAME, REPOSITORY_NAME, EXTENSION_NAME, REPOSITORY_NAME, REPOSITORY_NAME,
+		    REPOSITORY_URL, EXTENSION_NAME, REPOSITORY_NAME, MoreInformation());
 	}
-
-	{
-		auto &topics_dest = output.data[1];
-
-		const RdKafka::Metadata::TopicMetadataVector *topics = metadata->topics();
-
-		// Size the topics list (and the nested partitions list) before taking any data pointers: growing a list
-		// vector can reallocate its child, which would leave earlier pointers dangling.
-		const auto topics_list_current_size = ListVector::GetListSize(topics_dest);
-		const auto topics_list_new_size = topics_list_current_size + topics->size();
-		ListVector::Reserve(topics_dest, topics_list_new_size);
-		ListVector::SetListSize(topics_dest, topics_list_new_size);
-
-		auto topics_data = FlatVector::GetDataMutable<list_entry_t>(topics_dest);
-		topics_data[0].length = topics->size();
-		topics_data[0].offset = topics_list_current_size;
-
-		{
-			auto &topics_entries = StructVector::GetEntries(ListVector::GetChildMutable(topics_dest));
-			auto &topic_name_column = topics_entries[0];
-			auto &topic_error_column = topics_entries[1];
-			auto &topic_partitions_column = topics_entries[2];
-
-			idx_t total_partitions = 0;
-			for (size_t topic_idx = 0; topic_idx < topics->size(); topic_idx++) {
-				auto topic = topics->at(topic_idx);
-				if (topic->err() == RdKafka::ERR_NO_ERROR) {
-					total_partitions += topic->partitions()->size();
-				}
-			}
-			const auto partitions_list_start = ListVector::GetListSize(topic_partitions_column);
-			ListVector::Reserve(topic_partitions_column, partitions_list_start + total_partitions);
-			ListVector::SetListSize(topic_partitions_column, partitions_list_start + total_partitions);
-
-			auto topic_name_data = FlatVector::GetDataMutable<string_t>(topic_name_column);
-			auto topic_error_data = FlatVector::GetDataMutable<string_t>(topic_error_column);
-
-			auto &topic_error_validity = FlatVector::ValidityMutable(topic_error_column);
-
-			auto topic_partitions_data = FlatVector::GetDataMutable<list_entry_t>(topic_partitions_column);
-			auto &topic_partitions_dest = ListVector::GetChildMutable(topic_partitions_column);
-
-			auto &topic_partition_entries = StructVector::GetEntries(topic_partitions_dest);
-			auto &topic_partitions_id_column = topic_partition_entries[0];
-			auto &topic_partitions_leader_column = topic_partition_entries[1];
-
-			auto topic_partition_name_data = FlatVector::GetDataMutable<int32_t>(topic_partitions_id_column);
-			auto topic_partition_leader_data = FlatVector::GetDataMutable<int32_t>(topic_partitions_leader_column);
-
-			auto partitions_offset = partitions_list_start;
-			for (size_t topic_idx = 0; topic_idx < topics->size(); topic_idx++) {
-				auto topic = topics->at(topic_idx);
-				const auto row = topics_list_current_size + topic_idx;
-
-				topic_name_data[row] = StringVector::AddString(topic_name_column, topic->topic());
-
-				if (topic->err() != RdKafka::ERR_NO_ERROR) {
-					topic_error_data[row] = StringVector::AddString(topic_error_column, RdKafka::err2str(topic->err()));
-					topic_partitions_data[row].length = 0;
-					topic_partitions_data[row].offset = partitions_offset;
-					continue;
-				}
-				topic_error_validity.SetInvalid(row);
-
-				const RdKafka::TopicMetadata::PartitionMetadataVector *partitions = topic->partitions();
-
-				topic_partitions_data[row].length = partitions->size();
-				topic_partitions_data[row].offset = partitions_offset;
-
-				for (size_t partition_idx = 0; partition_idx < partitions->size(); partition_idx++) {
-					auto partition = partitions->at(partition_idx);
-					topic_partition_name_data[partitions_offset + partition_idx] = partition->id();
-					topic_partition_leader_data[partitions_offset + partition_idx] = partition->leader();
-				}
-				partitions_offset += partitions->size();
-			}
-		}
-	}
-}
-
-static inline void TributaryVersionFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-	result.SetVectorType(VectorType::CONSTANT_VECTOR);
-	result.SetValue(0, Value("20251020.01"));
-}
-
-static void LoadInternal(ExtensionLoader &loader) {
-	// Register a scalar function
-	auto tributary_scalar_function =
-	    ScalarFunction("tributary", {LogicalType::VARCHAR}, LogicalType::VARCHAR, TributaryScalarFun);
-	loader.RegisterFunction(tributary_scalar_function);
-
-	auto metadata_function = TableFunction("tributary_metadata", {}, TributaryMetadata, TributaryMetadataBind);
-	metadata_function.GetSignature().WithTypedKwargs("options", [](TypedKwargs &options) {
-		// TributaryConfigKeys() contains repeated keys; TypedKwargs rejects duplicates.
-		case_insensitive_set_t seen;
-		for (auto &key : TributaryConfigKeys()) {
-			if (seen.insert(key).second) {
-				options.Add(Identifier(key), LogicalType(LogicalTypeId::VARCHAR));
-			}
-		}
-	});
-
-	loader.RegisterFunction(metadata_function);
-
-	auto version_function = ScalarFunction("tributary_version", {}, LogicalType::VARCHAR, TributaryVersionFunction);
-	loader.RegisterFunction(version_function);
-
-	TributaryScanTopicAddFunction(loader);
-	TributarySchemaRegistryAddFunctions(loader);
-	TributaryCreateSecrets(loader);
-
-	auto &log_manager = loader.GetDatabaseInstance().GetLogManager();
-	log_manager.RegisterLogType(make_uniq<TributaryLogType>());
-
-	//	QueryFarmSendTelemetry(loader, "tributary", "2026102001");
 }
 
 void TributaryExtension::Load(ExtensionLoader &loader) {
-	LoadInternal(loader);
+	LoadFromQueryFarmOrExplain(loader.GetDatabaseInstance());
 }
+
 std::string TributaryExtension::Name() {
-	return "tributary";
+	return EXTENSION_NAME;
 }
 
 std::string TributaryExtension::Version() const {
-	return "2026102001";
+	return EXTENSION_VERSION;
 }
 
 } // namespace duckdb
@@ -285,6 +167,6 @@ std::string TributaryExtension::Version() const {
 extern "C" {
 
 DUCKDB_CPP_EXTENSION_ENTRY(tributary, loader) {
-	duckdb::LoadInternal(loader);
+	duckdb::LoadFromQueryFarmOrExplain(loader.GetDatabaseInstance());
 }
 }

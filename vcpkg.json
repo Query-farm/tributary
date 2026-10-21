@@ -1,25 +1,3 @@
 {
-        "dependencies": [
-                {
-                        "name": "librdkafka",
-                        "features": [
-                                "curl",
-                                "ssl",
-                                "zlib",
-                                "zstd"
-                        ]
-                },
-                {
-                        "name": "schemaregistry",
-                        "features": [
-                                "json"
-                        ]
-                }
-        ],
-        "vcpkg-configuration": {
-                "overlay-ports": [
-                        "./extension-ci-tools/vcpkg_ports",
-                        "./vcpkg-overlay/schemaregistry"
-                ]
-        }
+  "dependencies": []
 }
