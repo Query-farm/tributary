@@ -1,0 +1,84 @@
+diff --git a/src/rest/DekRegistryClient.cpp b/src/rest/DekRegistryClient.cpp
+index 323d87e..d82a0de 100644
+--- a/src/rest/DekRegistryClient.cpp
++++ b/src/rest/DekRegistryClient.cpp
+@@ -126,10 +126,35 @@ std::string DekRegistryClient::sendHttpRequest(
+     auto result =
+         restClient->sendRequestUrls(path, method, params, headers, body);
+ 
++    // Name the URL that failed: the response's URL, or the configured
++    // base URL(s) when no request could be made at all.
++    std::string request_url = result.url.str();
++    if (request_url.empty()) {
++        for (const auto &base_url :
++             restClient->getConfiguration()->getBaseUrls()) {
++            if (!request_url.empty()) {
++                request_url += ", ";
++            }
++            request_url += base_url + path;
++        }
++    }
++
++    if (result.status_code == 0) {
++        // No HTTP response (connection refused, DNS failure, timeout, ...)
++        std::string reason = result.error.message;
++        if (reason.empty()) {
++            reason = "no response received";
++        }
++        throw schemaregistry::rest::RestException(
++            "Failed to connect to Schema Registry at " + request_url + ": " +
++                reason,
++            0);
++    }
++
+     if (result.status_code >= 400) {
+         std::string errorMsg = "HTTP Error " +
+-                               std::to_string(result.status_code) + ": " +
+-                               result.text;
++                               std::to_string(result.status_code) + " from " +
++                               request_url + ": " + result.text;
+         throw schemaregistry::rest::RestException(errorMsg, result.status_code);
+     }
+ 
+diff --git a/src/rest/SchemaRegistryClient.cpp b/src/rest/SchemaRegistryClient.cpp
+index 861e576..438bdf0 100644
+--- a/src/rest/SchemaRegistryClient.cpp
++++ b/src/rest/SchemaRegistryClient.cpp
+@@ -97,10 +97,35 @@ std::string SchemaRegistryClient::sendHttpRequest(
+     auto result =
+         restClient->sendRequestUrls(path, method, query, headers, body);
+ 
++    // Name the URL that failed: the response's URL, or the configured
++    // base URL(s) when no request could be made at all.
++    std::string request_url = result.url.str();
++    if (request_url.empty()) {
++        for (const auto &base_url :
++             restClient->getConfiguration()->getBaseUrls()) {
++            if (!request_url.empty()) {
++                request_url += ", ";
++            }
++            request_url += base_url + path;
++        }
++    }
++
++    if (result.status_code == 0) {
++        // No HTTP response (connection refused, DNS failure, timeout, ...)
++        std::string reason = result.error.message;
++        if (reason.empty()) {
++            reason = "no response received";
++        }
++        throw schemaregistry::rest::RestException(
++            "Failed to connect to Schema Registry at " + request_url + ": " +
++                reason,
++            0);
++    }
++
+     if (result.status_code >= 400) {
+         std::string errorMsg = "HTTP Error " +
+-                               std::to_string(result.status_code) + ": " +
+-                               result.text;
++                               std::to_string(result.status_code) + " from " +
++                               request_url + ": " + result.text;
+         throw schemaregistry::rest::RestException(errorMsg, result.status_code);
+     }
+ 

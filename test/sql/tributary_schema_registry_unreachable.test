@@ -1,0 +1,16 @@
+# name: test/sql/tributary_schema_registry_unreachable.test
+# description: an unreachable Schema Registry is reported as a connection error naming the URL, not a JSON parse error
+# group: [tributary]
+
+require tributary
+
+# Nothing listens on port 1
+statement error
+SELECT * FROM tributary_schema_registry_subjects('http://127.0.0.1:1', false);
+----
+<REGEX>:.*Failed to connect to Schema Registry at http://127\.0\.0\.1:1/subjects.*
+
+statement error
+SELECT tributary_schema_registry_get_schema_latest_json_structure('http://127.0.0.1:1', 'some-subject');
+----
+<REGEX>:.*Failed to connect to Schema Registry at http://127\.0\.0\.1:1/subjects/some-subject/versions/latest.*

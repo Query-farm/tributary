@@ -6,6 +6,8 @@ vcpkg_from_github(
     REPO query-farm/libschemaregistry
     REF b59daa3f2302386dd3833883c256b84e12e8cb39
     SHA512 668f47c458046ae0f91e6929d56e8f306e49a7a36cca69cf9a54785047cfaba05a2e5a75d568161261ecadb65de65d37c577ecb6e7bac4c459bdf199055a0a88
+    PATCHES
+        0001-report-connection-failures.patch
 )
 
 
