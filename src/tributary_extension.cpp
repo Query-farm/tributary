@@ -23,13 +23,6 @@
 
 namespace duckdb {
 
-inline void TributaryScalarFun(DataChunk &args, ExpressionState &state, Vector &result) {
-	auto &name_vector = args.data[0];
-	UnaryExecutor::Execute<string_t, string_t>(name_vector, result, [&](string_t name) {
-		return StringVector::AddString(result, "Tributary " + name.GetString() + " 🐥");
-	});
-}
-
 struct TributaryMetadataBindData : public TableFunctionData {
 	std::unordered_map<string, string> config_values_;
 
@@ -238,11 +231,6 @@ static inline void TributaryVersionFunction(DataChunk &args, ExpressionState &st
 }
 
 static void LoadInternal(ExtensionLoader &loader) {
-	// Register a scalar function
-	auto tributary_scalar_function = ScalarFunction("tributary", {Positional("name", LogicalType::VARCHAR)},
-	                                                LogicalType::VARCHAR, TributaryScalarFun);
-	loader.RegisterFunction(tributary_scalar_function);
-
 	auto metadata_function = TableFunction("tributary_metadata", {}, TributaryMetadata, TributaryMetadataBind);
 	metadata_function.GetSignature().WithTypedKwargs("options", [](TypedKwargs &options) {
 		// TributaryConfigKeys() contains repeated keys; TypedKwargs rejects duplicates.
@@ -266,7 +254,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto &log_manager = loader.GetDatabaseInstance().GetLogManager();
 	log_manager.RegisterLogType(make_uniq<TributaryLogType>());
 
-	//	QueryFarmSendTelemetry(loader, "tributary", "2026102101");
+	//	QueryFarmSendTelemetry(loader, "tributary", "2026102102");
 }
 
 void TributaryExtension::Load(ExtensionLoader &loader) {
@@ -277,7 +265,7 @@ std::string TributaryExtension::Name() {
 }
 
 std::string TributaryExtension::Version() const {
-	return "2026102101";
+	return "2026102102";
 }
 
 } // namespace duckdb

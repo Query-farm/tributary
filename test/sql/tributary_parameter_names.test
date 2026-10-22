@@ -10,7 +10,6 @@ SELECT function_name, parameters FROM duckdb_functions()
 WHERE function_name LIKE 'tributary%' AND function_name NOT IN ('tributary_metadata', 'tributary_scan_topic')
 ORDER BY function_name;
 ----
-tributary	[name]
 tributary_schema_registry_delete_subject	[schema_registry_url, subject, permanent]
 tributary_schema_registry_delete_subject_version	[schema_registry_url, subject, version, permanent]
 tributary_schema_registry_get_schema_by_guid	[schema_registry_url, guid]
@@ -36,8 +35,8 @@ WHERE function_name LIKE 'tributary%' AND len(list_filter(parameters, lambda p: 
 ----
 0
 
-# A positional call still works
-query T
+# The extension-template greeting function tributary(name) is gone
+statement error
 SELECT tributary('Sam');
 ----
-Tributary Sam 🐥
+Scalar Function with name tributary does not exist
