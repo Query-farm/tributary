@@ -114,10 +114,11 @@ void TributarySchemaRegistryAddDeleteSubjectFunction(ExtensionLoader &loader);
 void TributarySchemaRegistryAddDeleteSubjectVersionFunction(ExtensionLoader &loader);
 
 void TributarySchemaRegistryAddFunctions(ExtensionLoader &loader) {
-	auto serialize_json_function =
-	    ScalarFunction("tributary_schema_registry_serialize_json",
-	                   {LogicalType::VARCHAR, LogicalType::JSON(), LogicalType::VARCHAR, LogicalType::JSON()},
-	                   LogicalType::BLOB, TributarySchemaRegistrySerializeFunction);
+	auto serialize_json_function = ScalarFunction(
+	    "tributary_schema_registry_serialize_json",
+	    {Positional("schema_registry_url", LogicalType::VARCHAR), Positional("schema", LogicalType::JSON()),
+	     Positional("topic", LogicalType::VARCHAR), Positional("data", LogicalType::JSON())},
+	    LogicalType::BLOB, TributarySchemaRegistrySerializeFunction);
 	serialize_json_function.SetFallible();
 	loader.RegisterFunction(serialize_json_function);
 

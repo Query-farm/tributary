@@ -88,10 +88,11 @@ void TributarySchemaRegistryGetSchemaByVersionFunction(ClientContext &context, T
 }
 
 void TributarySchemaRegistryAddGetSchemaByVersionFunction(ExtensionLoader &loader) {
-	loader.RegisterFunction(TableFunction("tributary_schema_registry_get_schema_by_version",
-	                                      {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER},
-	                                      TributarySchemaRegistryGetSchemaByVersionFunction,
-	                                      TributarySchemaRegistryGetSchemaByVersionBindFunction));
+	loader.RegisterFunction(TableFunction(
+	    "tributary_schema_registry_get_schema_by_version",
+	    TableSignature({Positional("schema_registry_url", LogicalType::VARCHAR),
+	                    Positional("subject", LogicalType::VARCHAR), Positional("version", LogicalType::INTEGER)}),
+	    TributarySchemaRegistryGetSchemaByVersionFunction, TributarySchemaRegistryGetSchemaByVersionBindFunction));
 }
 
 } // namespace duckdb

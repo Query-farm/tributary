@@ -99,7 +99,10 @@ void TributarySchemaRegistryRegisterSchemaFunction(ClientContext &context, Table
 void TributarySchemaRegistryAddRegisterSchemaFunction(ExtensionLoader &loader) {
 	loader.RegisterFunction(TableFunction(
 	    "tributary_schema_registry_register_schema",
-	    {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::BOOLEAN},
+	    TableSignature({Positional("schema_registry_url", LogicalType::VARCHAR),
+	                    Positional("subject", LogicalType::VARCHAR), Positional("schema_type", LogicalType::VARCHAR),
+	                    Positional("schema_definition", LogicalType::VARCHAR),
+	                    Positional("normalize", LogicalType::BOOLEAN)}),
 	    TributarySchemaRegistryRegisterSchemaFunction, TributarySchemaRegistryRegisterSchemaBindFunction));
 }
 

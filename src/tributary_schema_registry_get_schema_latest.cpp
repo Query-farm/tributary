@@ -258,12 +258,15 @@ void TributarySchemaRegisteryGetLatestSchemaJsonStructureFunction(DataChunk &arg
 }
 
 void TributarySchemaRegistryAddGetSchemaLatestFunction(ExtensionLoader &loader) {
-	loader.RegisterFunction(TableFunction(
-	    "tributary_schema_registry_get_schema_latest", {LogicalType::VARCHAR, LogicalType::VARCHAR},
-	    TributarySchemaRegistryGetSchemaLatestFunction, TributarySchemaRegistryGetSchemaLatestBindFunction));
+	loader.RegisterFunction(TableFunction("tributary_schema_registry_get_schema_latest",
+	                                      TableSignature({Positional("schema_registry_url", LogicalType::VARCHAR),
+	                                                      Positional("subject", LogicalType::VARCHAR)}),
+	                                      TributarySchemaRegistryGetSchemaLatestFunction,
+	                                      TributarySchemaRegistryGetSchemaLatestBindFunction));
 
 	auto json_structure_function = ScalarFunction(
-	    "tributary_schema_registry_get_schema_latest_json_structure", {LogicalType::VARCHAR, LogicalType::VARCHAR},
+	    "tributary_schema_registry_get_schema_latest_json_structure",
+	    {Positional("schema_registry_url", LogicalType::VARCHAR), Positional("subject", LogicalType::VARCHAR)},
 	    LogicalType::VARCHAR, TributarySchemaRegisteryGetLatestSchemaJsonStructureFunction, nullptr, nullptr, nullptr,
 	    LogicalType::INVALID, FunctionStability::CONSISTENT_WITHIN_QUERY);
 	json_structure_function.SetFallible();

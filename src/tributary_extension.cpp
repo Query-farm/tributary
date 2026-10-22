@@ -239,8 +239,8 @@ static inline void TributaryVersionFunction(DataChunk &args, ExpressionState &st
 
 static void LoadInternal(ExtensionLoader &loader) {
 	// Register a scalar function
-	auto tributary_scalar_function =
-	    ScalarFunction("tributary", {LogicalType::VARCHAR}, LogicalType::VARCHAR, TributaryScalarFun);
+	auto tributary_scalar_function = ScalarFunction("tributary", {Positional("name", LogicalType::VARCHAR)},
+	                                                LogicalType::VARCHAR, TributaryScalarFun);
 	loader.RegisterFunction(tributary_scalar_function);
 
 	auto metadata_function = TableFunction("tributary_metadata", {}, TributaryMetadata, TributaryMetadataBind);
@@ -266,7 +266,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto &log_manager = loader.GetDatabaseInstance().GetLogManager();
 	log_manager.RegisterLogType(make_uniq<TributaryLogType>());
 
-	//	QueryFarmSendTelemetry(loader, "tributary", "2026102001");
+	//	QueryFarmSendTelemetry(loader, "tributary", "2026102101");
 }
 
 void TributaryExtension::Load(ExtensionLoader &loader) {
@@ -277,7 +277,7 @@ std::string TributaryExtension::Name() {
 }
 
 std::string TributaryExtension::Version() const {
-	return "2026102001";
+	return "2026102101";
 }
 
 } // namespace duckdb

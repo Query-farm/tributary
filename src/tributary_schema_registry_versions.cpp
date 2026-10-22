@@ -83,9 +83,11 @@ void TributarySchemaRegistryVersionsFunction(ClientContext &context, TableFuncti
 }
 
 void TributarySchemaRegistryAddAllVersionsFunction(ExtensionLoader &loader) {
-	loader.RegisterFunction(
-	    TableFunction("tributary_schema_registry_versions", {LogicalType::VARCHAR, LogicalType::VARCHAR},
-	                  TributarySchemaRegistryVersionsFunction, TributarySchemaRegistryVersionsBindFunction));
+	loader.RegisterFunction(TableFunction("tributary_schema_registry_versions",
+	                                      TableSignature({Positional("schema_registry_url", LogicalType::VARCHAR),
+	                                                      Positional("subject", LogicalType::VARCHAR)}),
+	                                      TributarySchemaRegistryVersionsFunction,
+	                                      TributarySchemaRegistryVersionsBindFunction));
 }
 
 } // namespace duckdb

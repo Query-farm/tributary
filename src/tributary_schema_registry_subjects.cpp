@@ -81,9 +81,11 @@ void TributarySchemaRegistrySubjectsFunction(ClientContext &context, TableFuncti
 }
 
 void TributarySchemaRegistryAddGetSubjectsFunction(ExtensionLoader &loader) {
-	loader.RegisterFunction(
-	    TableFunction("tributary_schema_registry_subjects", {LogicalType::VARCHAR, LogicalType::BOOLEAN},
-	                  TributarySchemaRegistrySubjectsFunction, TributarySchemaRegistrySubjectsBindFunction));
+	loader.RegisterFunction(TableFunction("tributary_schema_registry_subjects",
+	                                      TableSignature({Positional("schema_registry_url", LogicalType::VARCHAR),
+	                                                      Positional("deleted", LogicalType::BOOLEAN)}),
+	                                      TributarySchemaRegistrySubjectsFunction,
+	                                      TributarySchemaRegistrySubjectsBindFunction));
 }
 
 } // namespace duckdb

@@ -77,9 +77,11 @@ void TributarySchemaRegistryGetSchemaByGuidFunction(ClientContext &context, Tabl
 }
 
 void TributarySchemaRegistryAddGetSchemaByGuidFunction(ExtensionLoader &loader) {
-	loader.RegisterFunction(TableFunction(
-	    "tributary_schema_registry_get_schema_by_guid", {LogicalType::VARCHAR, LogicalType::VARCHAR},
-	    TributarySchemaRegistryGetSchemaByGuidFunction, TributarySchemaRegistryGetSchemaByGuidBindFunction));
+	loader.RegisterFunction(TableFunction("tributary_schema_registry_get_schema_by_guid",
+	                                      TableSignature({Positional("schema_registry_url", LogicalType::VARCHAR),
+	                                                      Positional("guid", LogicalType::VARCHAR)}),
+	                                      TributarySchemaRegistryGetSchemaByGuidFunction,
+	                                      TributarySchemaRegistryGetSchemaByGuidBindFunction));
 }
 
 } // namespace duckdb

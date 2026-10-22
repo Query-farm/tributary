@@ -678,9 +678,9 @@ void TributaryScanTopicAddFunction(ExtensionLoader &loader) {
 	// topic_name, config...
 	// topic_name, cluster_name, config...
 
-	auto no_cluster_name =
-	    TableFunction("tributary_scan_topic", {LogicalType::VARCHAR}, TributaryScanTopic, TributaryScanTopicBind,
-	                  TributaryScanTopicGlobalInit, TributaryScanTopicLocalInit);
+	auto no_cluster_name = TableFunction(
+	    "tributary_scan_topic", TableSignature({Positional("topic_name", LogicalType::VARCHAR)}), TributaryScanTopic,
+	    TributaryScanTopicBind, TributaryScanTopicGlobalInit, TributaryScanTopicLocalInit);
 
 	no_cluster_name.GetSignature().WithTypedKwargs("options", [](TypedKwargs &options) {
 		// TributaryConfigKeys() contains repeated keys; TypedKwargs rejects duplicates.

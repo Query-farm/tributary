@@ -1,0 +1,43 @@
+# name: test/sql/tributary_parameter_names.test
+# description: duckdb_functions() reports the real parameter names, and calls stay positional
+# group: [tributary]
+
+require tributary
+
+# tributary_metadata and tributary_scan_topic also list every Kafka option, so they are checked below
+query TT
+SELECT function_name, parameters FROM duckdb_functions()
+WHERE function_name LIKE 'tributary%' AND function_name NOT IN ('tributary_metadata', 'tributary_scan_topic')
+ORDER BY function_name;
+----
+tributary	[name]
+tributary_schema_registry_delete_subject	[schema_registry_url, subject, permanent]
+tributary_schema_registry_delete_subject_version	[schema_registry_url, subject, version, permanent]
+tributary_schema_registry_get_schema_by_guid	[schema_registry_url, guid]
+tributary_schema_registry_get_schema_by_subject_and_id	[schema_registry_url, subject, schema_id]
+tributary_schema_registry_get_schema_by_version	[schema_registry_url, subject, version]
+tributary_schema_registry_get_schema_latest	[schema_registry_url, subject]
+tributary_schema_registry_get_schema_latest_json_structure	[schema_registry_url, subject]
+tributary_schema_registry_register_schema	[schema_registry_url, subject, schema_type, schema_definition, normalize]
+tributary_schema_registry_serialize_json	[schema_registry_url, schema, topic, data]
+tributary_schema_registry_subjects	[schema_registry_url, deleted]
+tributary_schema_registry_versions	[schema_registry_url, subject]
+tributary_version	[]
+
+query TT
+SELECT parameters[1], len(list_filter(parameters, lambda p: p SIMILAR TO 'col[0-9]+'))
+FROM duckdb_functions() WHERE function_name = 'tributary_scan_topic';
+----
+topic_name	0
+
+query I
+SELECT count(*) FROM duckdb_functions()
+WHERE function_name LIKE 'tributary%' AND len(list_filter(parameters, lambda p: p SIMILAR TO 'col[0-9]+')) > 0;
+----
+0
+
+# A positional call still works
+query T
+SELECT tributary('Sam');
+----
+Tributary Sam 🐥

@@ -81,7 +81,9 @@ void TributarySchemaRegistryDeleteSubjectVersionFunction(ClientContext &context,
 void TributarySchemaRegistryAddDeleteSubjectVersionFunction(ExtensionLoader &loader) {
 	loader.RegisterFunction(TableFunction(
 	    "tributary_schema_registry_delete_subject_version",
-	    {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER, LogicalType::BOOLEAN},
+	    TableSignature({Positional("schema_registry_url", LogicalType::VARCHAR),
+	                    Positional("subject", LogicalType::VARCHAR), Positional("version", LogicalType::INTEGER),
+	                    Positional("permanent", LogicalType::BOOLEAN)}),
 	    TributarySchemaRegistryDeleteSubjectVersionFunction, TributarySchemaRegistryDeleteSubjectVersionBindFunction));
 }
 

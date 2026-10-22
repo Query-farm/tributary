@@ -86,7 +86,9 @@ void TributarySchemaRegistryDeleteSubjectFunction(ClientContext &context, TableF
 
 void TributarySchemaRegistryAddDeleteSubjectFunction(ExtensionLoader &loader) {
 	loader.RegisterFunction(TableFunction(
-	    "tributary_schema_registry_delete_subject", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::BOOLEAN},
+	    "tributary_schema_registry_delete_subject",
+	    TableSignature({Positional("schema_registry_url", LogicalType::VARCHAR),
+	                    Positional("subject", LogicalType::VARCHAR), Positional("permanent", LogicalType::BOOLEAN)}),
 	    TributarySchemaRegistryDeleteSubjectFunction, TributarySchemaRegistryDeleteSubjectBindFunction));
 }
 
