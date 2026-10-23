@@ -7,26 +7,17 @@
   </a>
 </p>
 
-# DuckDB Tributary Extension
+# Tributary Extension for DuckDB
 
-[![DuckDB](https://img.shields.io/badge/DuckDB-community_extension-fdf1e0?logo=duckdb&logoColor=fff000)](https://duckdb.org/community_extensions/extensions/tributary.html)
-[![v1.5 build](https://github.com/Query-farm/tributary/actions/workflows/MainDistributionPipeline.yml/badge.svg?branch=v1.5)](https://github.com/Query-farm/tributary/actions/workflows/MainDistributionPipeline.yml?query=branch%3Av1.5)
+[![DuckDB](https://img.shields.io/badge/DuckDB-extension-fdf1e0?logo=duckdb&logoColor=fff000)](https://query.farm/products/extensions/tributary/)
+[![v2.0 build](https://github.com/Query-farm/tributary/actions/workflows/MainDistributionPipeline.yml/badge.svg?branch=v2.0)](https://github.com/Query-farm/tributary/actions/workflows/MainDistributionPipeline.yml?query=branch%3Av2.0)
 
-The **Tributary** extension provides seamless integration between DuckDB and [Apache Kafka](https://kafka.apache.org/), enabling real-time querying and analysis of streaming data. With this extension, users can consume messages directly from Kafka topics into DuckDB for immediate processing, as well as write processed data back to Kafka streams.
+Read Apache Kafka topics and inspect cluster metadata from DuckDB SQL.
 
 ## Documentation
 
 Full documentation, including installation, usage, the function reference, and cookbook examples, is available at:
 
-**[https://query.farm/products/extensions/tributary](https://query.farm/products/extensions/tributary)**
+**[https://query.farm/products/extensions/tributary/](https://query.farm/products/extensions/tributary/)**
 
-## Installation
-
-```sql
-INSTALL tributary FROM community;
-LOAD tributary;
-```
-
-## Development
-
-For instructions on building the extension from source and running its tests, see [BUILDING.md](BUILDING.md).
+[Build and test](BUILDING.md)
